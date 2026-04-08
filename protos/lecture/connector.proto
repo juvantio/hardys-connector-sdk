@@ -1,0 +1,197 @@
+syntax = "proto3";
+package hardys.connector.lecture.v1;
+
+// Configuration ---------------------------------------------------------------
+
+// ConnectorConfig is sent by Hardys Core to the connector in RegisterResponse.
+// Instance-level configuration: applies for the full lifetime of the container.
+// NOT session config (that goes in ConnectRequest).
+// In local dev: populated from config.json. In production: arrives via gRPC.
+message ConnectorConfig {
+  string instance_url               = 1;  // platform base URL
+  map<string, string> credentials   = 2;  // platform secrets — never logged
+  map<string, string> params        = 3;  // arbitrary instance-level params
+  string locale                     = 4;  // e.g. "it_IT", "en_EN"
+  uint32 inactivity_timeout_seconds = 5;  // default: 600
+  string log_level                  = 6;  // "DEBUG", "INFO", "WARNING"
+}
+
+message ConnectorCapabilities {
+  bool audio      = 1;
+  bool video      = 2;
+  bool chat_read  = 3;
+  bool chat_write = 4;
+}
+
+// Session ---------------------------------------------------------------------
+
+message SessionConfig {
+  bool audio_enabled      = 1;  // default: true
+  bool video_enabled      = 2;  // default: false
+  bool chat_read_enabled  = 3;  // default: true
+  bool chat_write_enabled = 4;  // default: true
+}
+
+message SessionRef {
+  string session_id    = 1;  // Hardys internal session UUID
+  string session_name  = 2;  // human-readable name
+  string session_token = 3;  // platform canonical token:
+                              //   Collaborate: guest token
+                              //   Teams / Zoom / Meet: meeting ID
+  string join_url      = 4;  // full join URL — passed when available.
+                              //   Used by reverse-engineered connectors.
+                              //   May be empty for SDK-based connectors.
+}
+
+message ConnectRequest  { SessionRef session = 1; SessionConfig config = 2; }
+message ConnectResponse { bool connected = 1; string error = 2; }
+message DisconnectRequest  {}
+message DisconnectResponse {}
+
+// Inbound streams -------------------------------------------------------------
+
+enum AudioSource {
+  AUDIO_SOURCE_UNKNOWN = 0;
+  AUDIO_SOURCE_MIX     = 1;  // all speakers mixed (e.g. Chime SFU)
+  AUDIO_SOURCE_SPEAKER = 2;  // per speaker (e.g. Google Meet)
+}
+
+// Raw PCM audio — connectors NEVER transcribe. All AI inference in Hardys Core.
+message AudioFrame {
+  bytes       data        = 1;  // PCM 16-bit 16kHz mono
+  uint64      timestamp   = 2;  // epoch ms
+  string      speaker_id  = 3;  // optional: native platform diarization
+  float       confidence  = 4;  // optional: 0.0-1.0
+  bool        is_speaking = 5;  // optional: voice activity
+  AudioSource source      = 6;
+}
+
+// Raw video frames — connectors NEVER analyze. All AI inference in Hardys Core.
+message VideoFrame {
+  bytes  data       = 1;  // raw frame bytes
+  uint64 timestamp  = 2;  // epoch ms
+  string format     = 3;  // "h264", "vp8", "vp9"
+  string speaker_id = 4;  // optional
+}
+
+// Inbound chat — connector strips HTML, Hardys Core receives plain text.
+message ChatMessage {
+  string message_id  = 1;
+  string sender_id   = 2;
+  string sender_name = 3;
+  string text        = 4;  // plain text
+  uint64 timestamp   = 5;  // epoch ms
+}
+
+// Outbound --------------------------------------------------------------------
+
+// Connector handles platform-specific formatting (HTML for jinx, Bot Activity for Teams).
+message ChatOutMessage { string text = 1; }
+message ChatOutResponse { bool success = 1; string error = 2; }
+
+// Session lifecycle -----------------------------------------------------------
+
+// SessionEndedEvent: emitted by connector when session terminates.
+// reason: "platform_disconnected" | "timeout" | "manual"
+// Note: "manual" is emitted by Hardys Core after Disconnect() — connectors do not emit it.
+message SessionEndedEvent {
+  string session_id = 1;
+  string reason     = 2;
+  uint64 timestamp  = 3;
+}
+
+// Registration and health -----------------------------------------------------
+
+// Connector -> Core: identify yourself at boot.
+message RegisterRequest {
+  string connector_class = 1;  // e.g. "lecture"
+  string connector_id    = 2;  // e.g. "lecture.collaborate_guest"
+  string version         = 3;  // semantic version
+}
+
+// Core -> Connector: here is your instance configuration.
+message RegisterResponse {
+  ConnectorConfig       config       = 1;  // instance config FROM Core
+  ConnectorCapabilities capabilities = 2;  // Core acknowledges capabilities
+}
+
+message HealthCheckRequest {}
+message HealthCheckResponse {
+  bool   healthy              = 1;
+  string version              = 2;
+  string connector_class      = 3;
+  string connector_id         = 4;
+  ConnectorCapabilities caps  = 5;
+  bool   management_supported = 6;
+  map<string, string> diagnostics = 7;
+}
+
+message TestStreamRequest {
+  uint32 duration_seconds = 1;
+  bool   mock             = 2;
+}
+
+// GetConfigSchema -------------------------------------------------------------
+
+// Called by Hardys Core when an admin registers this connector type.
+// Returns JSON Schema (draft-07) describing ConnectorConfig.credentials and .params.
+// Hardys Core uses this to dynamically generate the admin UI form.
+// Does NOT describe session config (session_token, join_url) — those are in SessionRef.
+message ConfigSchemaRequest {}
+message ConfigSchemaResponse {
+  string json_schema = 1;  // JSON Schema as string.
+                           // Supported admin UI field types:
+                           //   "string", "password", "integer", "boolean", "enum"
+}
+
+// ConnectorService ------------------------------------------------------------
+
+service ConnectorService {
+  rpc Register    (RegisterRequest)    returns (RegisterResponse);
+  rpc Connect     (ConnectRequest)     returns (ConnectResponse);
+  rpc Disconnect  (DisconnectRequest)  returns (DisconnectResponse);
+
+  rpc StreamAudio   (ConnectRequest)   returns (stream AudioFrame);
+  rpc StreamVideo   (ConnectRequest)   returns (stream VideoFrame);
+  rpc StreamChat    (ConnectRequest)   returns (stream ChatMessage);
+  rpc SessionEvents (ConnectRequest)   returns (stream SessionEndedEvent);
+
+  rpc SendChat    (ChatOutMessage)     returns (ChatOutResponse);
+
+  rpc HealthCheck     (HealthCheckRequest)  returns (HealthCheckResponse);
+  rpc GetConfigSchema (ConfigSchemaRequest) returns (ConfigSchemaResponse);
+  rpc TestStream      (TestStreamRequest)   returns (stream AudioFrame);
+}
+
+// ConnectorManagementService --------------------------------------------------
+
+// OPTIONAL. Set management_supported=false in HealthCheck if not implementing.
+// Faculty App UX:
+//   true  -> session list, tap to activate
+//   false -> text field for guest link / session token
+
+message ListSessionsRequest {
+  string course_id = 1;
+  string date      = 2;  // ISO date YYYY-MM-DD, defaults to today
+}
+
+message SessionDetails {
+  string session_id    = 1;
+  string session_name  = 2;
+  string start_time    = 3;  // ISO 8601
+  string end_time      = 4;  // ISO 8601
+  bool   is_active     = 5;
+  bool   audio_enabled = 6;
+}
+
+message ListSessionsResponse { repeated SessionDetails sessions = 1; }
+message GetSessionRequest    { string session_id = 1; }
+
+message ActivateSessionRequest  { string session_id = 1; SessionConfig config = 2; }
+message ActivateSessionResponse { bool success = 1; string error = 2; }
+
+service ConnectorManagementService {
+  rpc ListSessions    (ListSessionsRequest)    returns (ListSessionsResponse);
+  rpc GetSession      (GetSessionRequest)      returns (SessionDetails);
+  rpc ActivateSession (ActivateSessionRequest) returns (ActivateSessionResponse);
+}

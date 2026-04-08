@@ -1,0 +1,10 @@
+# Editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Generated files (protos are source, stubs are generated)
+*_pb2.py
+*_pb2_grpc.py
+*.pb.go
