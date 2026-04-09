@@ -137,12 +137,12 @@ message ChatMessage {
 }
 
 // -----------------------------------------------------------------------------
-// LectureEvent stream — all 23 event types
+// LectureEvent stream — all 24 event types
 // -----------------------------------------------------------------------------
 //
 // StreamEvents carries TWO categories of events:
-//   1. Platform events (1–20): what happens in the lecture
-//   2. Lifecycle control events (21–23): connector state signals to Core
+//   1. Platform events (1–21): what happens in the lecture
+//   2. Lifecycle control events (22–24): connector state signals to Core
 //
 // No callback servers needed — one stream, one paradigm.
 
@@ -163,19 +163,18 @@ message SpeakerChangedEvent {
   bool        is_instructor = 4;
 }
 
-message SpeakerMutedEvent            { string speaker_id = 1; }
-message SpeakerUnmutedEvent          { string speaker_id = 1; }
-message ParticipantJoinedEvent       { string participant_id = 1; string name = 2; SpeakerRole role = 3; }
-message ParticipantLeftEvent         { string participant_id = 1; }
-message ParticipantRaisedHandEvent   { string participant_id = 1; string name = 2; }
-message ParticipantMutedEvent        { string participant_id = 1; }
-message ScreenShareStartedEvent      { string participant_id = 1; }
-message ScreenShareStoppedEvent      { string participant_id = 1; }
-message PollStartedEvent             { string question = 1; repeated string options = 2; }
-message PollClosedEvent              { string poll_id = 1; }
-message BreakoutRoomStartedEvent     { uint32 room_count = 1; }
-message BreakoutRoomClosedEvent      { uint64 timestamp = 1; }
-message ChatMessageReceivedEvent     { ChatMessage message = 1; }
+message ParticipantJoinedEvent     { string participant_id = 1; string name = 2; SpeakerRole role = 3; }
+message ParticipantLeftEvent       { string participant_id = 1; }
+message ParticipantRaisedHandEvent { string participant_id = 1; string name = 2; }
+message ParticipantMutedEvent      { string participant_id = 1; }
+message ParticipantUnmutedEvent    { string participant_id = 1; }
+message ScreenShareStartedEvent    { string participant_id = 1; }
+message ScreenShareStoppedEvent    { string participant_id = 1; }
+message PollStartedEvent           { string question = 1; repeated string options = 2; }
+message PollClosedEvent            { string poll_id = 1; }
+message BreakoutRoomStartedEvent   { uint32 room_count = 1; }
+message BreakoutRoomClosedEvent    { uint64 timestamp = 1; }
+message ChatMessageReceivedEvent   { ChatMessage message = 1; }
 
 // Lifecycle control events — connector signals to Core via StreamEvents.
 // No callback servers — one stream, one paradigm.
@@ -212,25 +211,24 @@ message LectureEvent {
     LectureRecordingStartedEvent recording_started    =  5;
     LectureRecordingStoppedEvent recording_stopped    =  6;
     SpeakerChangedEvent          speaker_changed      =  7;
-    SpeakerMutedEvent            speaker_muted        =  8;
-    SpeakerUnmutedEvent          speaker_unmuted      =  9;
-    ParticipantJoinedEvent       participant_joined   = 10;
-    ParticipantLeftEvent         participant_left     = 11;
-    ParticipantRaisedHandEvent   hand_raised          = 12;
-    ParticipantMutedEvent        participant_muted    = 13;
-    ScreenShareStartedEvent      screen_share_started = 14;
-    ScreenShareStoppedEvent      screen_share_stopped = 15;
-    PollStartedEvent             poll_started         = 16;
-    PollClosedEvent              poll_closed          = 17;
-    BreakoutRoomStartedEvent     breakout_started     = 18;
-    BreakoutRoomClosedEvent      breakout_closed      = 19;
-    ChatMessageReceivedEvent     chat_received        = 20;
+    ParticipantJoinedEvent       participant_joined   =  8;
+    ParticipantLeftEvent         participant_left     =  9;
+    ParticipantRaisedHandEvent   hand_raised          = 10;
+    ParticipantMutedEvent        participant_muted    = 11;
+    ParticipantUnmutedEvent      participant_unmuted  = 12;
+    ScreenShareStartedEvent      screen_share_started = 13;
+    ScreenShareStoppedEvent      screen_share_stopped = 14;
+    PollStartedEvent             poll_started         = 15;
+    PollClosedEvent              poll_closed          = 16;
+    BreakoutRoomStartedEvent     breakout_started     = 17;
+    BreakoutRoomClosedEvent      breakout_closed      = 18;
+    ChatMessageReceivedEvent     chat_received        = 19;
     // Lifecycle control events
-    LectureStartEvent            lecture_start        = 21;  // first instruction in Connect()
-    LectureCloseEvent            lecture_close        = 22;  // first instruction in Disconnect()
-    LectureErrorEvent            lecture_error        = 23;
+    LectureStartEvent            lecture_start        = 20;  // first instruction in Connect()
+    LectureCloseEvent            lecture_close        = 21;  // first instruction in Disconnect()
+    LectureErrorEvent            lecture_error        = 22;
   }
-  uint64 timestamp = 24;
+  uint64 timestamp = 23;
 }
 
 // -----------------------------------------------------------------------------

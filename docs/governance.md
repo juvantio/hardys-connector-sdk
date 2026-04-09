@@ -41,7 +41,7 @@ Third-party developers are free to build connectors implementing any class contr
 - Pass the SDK test harness in both real and mock mode
 - Expose all mandatory CLI entry points (`health`, `run`, `run --mock`)
 - Provide `auth-flow.md` and `session-flow.md` documentation
-- Pass a security review of credential handling (no secrets in logs, no secrets in config.json in production)
+- Pass a security review of credential handling
 
 Certification is managed by Juvant. Uncertified connectors can be used but are not listed in the official registry.
 
@@ -50,7 +50,9 @@ Certification is managed by Juvant. Uncertified connectors can be used but are n
 ### lecture.v2 (Apr 2026)
 - **BREAKING:** `hardys.connector.lecture.v1` → `hardys.connector.lecture.v2`
 - `StreamVideo` removed → `StreamAudio` (audio-only) + `StreamAudioVideo` (`MediaFrame`, audio+video)
-- `SessionEvents` → `StreamEvents` with full typed `LectureEvent` oneof (23 event types)
+- `SessionEvents` → `StreamEvents` with full typed `LectureEvent` oneof (22 event types)
+- `SpeakerMutedEvent` and `SpeakerUnmutedEvent` removed — redundant with `ParticipantMutedEvent`
+- `ParticipantUnmutedEvent` added — was missing, obvious counterpart to `ParticipantMutedEvent`
 - Three lifecycle control events on StreamEvents:
   - `LectureStartEvent` — emitted as **first instruction inside `Connect()`**; Core allocates resources
   - `LectureCloseEvent` — emitted as **first instruction inside `Disconnect()`**; Core deallocates resources

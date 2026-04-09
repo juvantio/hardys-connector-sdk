@@ -11,7 +11,7 @@ Hardys Connector Framework v1.2 uses a fully event-driven architecture. There ar
 
 ## StreamEvents carries two categories of events
 
-### Platform events (field numbers 1–20)
+### Platform events (field numbers 1–19)
 Events that reflect what is happening in the lecture:
 
 | Event | When emitted |
@@ -23,12 +23,11 @@ Events that reflect what is happening in the lecture:
 | `LectureRecordingStartedEvent` | Recording started (compliance/consent relevance) |
 | `LectureRecordingStoppedEvent` | Recording stopped |
 | `SpeakerChangedEvent` | Active speaker changed — includes `speaker_role` and `is_instructor` |
-| `SpeakerMutedEvent` | A speaker was muted |
-| `SpeakerUnmutedEvent` | A speaker was unmuted |
 | `ParticipantJoinedEvent` | New participant joined — includes `SpeakerRole` |
 | `ParticipantLeftEvent` | Participant left |
 | `ParticipantRaisedHandEvent` | Participant raised hand (signal for Hardys intervention) |
-| `ParticipantMutedEvent` | Participant was muted |
+| `ParticipantMutedEvent` | A participant was muted |
+| `ParticipantUnmutedEvent` | A participant was unmuted |
 | `ScreenShareStartedEvent` | Screen share active |
 | `ScreenShareStoppedEvent` | Screen share stopped |
 | `PollStartedEvent` | Instructor launched a poll |
@@ -37,7 +36,7 @@ Events that reflect what is happening in the lecture:
 | `BreakoutRoomClosedEvent` | Breakout rooms closed |
 | `ChatMessageReceivedEvent` | Chat message received (complement to StreamChat) |
 
-### Lifecycle control events (field numbers 21–23)
+### Lifecycle control events (field numbers 20–22)
 Events that signal connector lifecycle state to Core. No callback servers needed.
 
 | Event | When emitted | Semantics |
@@ -46,9 +45,9 @@ Events that signal connector lifecycle state to Core. No callback servers needed
 | `LectureCloseEvent` | **First instruction inside `Disconnect()`** | Core deallocates resources and closes the ingestion pipeline before the connector leaves the platform |
 | `LectureErrorEvent` | When an error occurs during the lecture | Core may respond with `SendControl(abort)` if non-recoverable |
 
-**Key distinction:**
-- `LectureStartEvent` / `LectureCloseEvent` are about the **connector lifecycle** — they signal the beginning and end of the connector's participation, not what happens on the platform.
-- `LectureStartedEvent` / `LectureClosedEvent` (platform events, fields 1–2) are about the **platform state** — the lecture starting or ending on the platform side.
+**Key naming distinction:**
+- `LectureStartEvent` / `LectureCloseEvent` = connector lifecycle signals (emitted inside `Connect()`/`Disconnect()`)
+- `LectureStartedEvent` / `LectureClosedEvent` (platform events, fields 1–2) = platform state events (lecture starting/ending on the platform)
 
 ## Lifecycle sequence
 
