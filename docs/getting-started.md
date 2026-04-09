@@ -157,20 +157,56 @@ python connector.py health
 python connector.py run --mock --duration 60
 ```
 
+### 7. Set up GitHub Actions for Docker publish
+
+Copy the workflow template from this SDK into your connector repo:
+
+```bash
+mkdir -p .github/workflows
+cp scripts/docker-publish.yml .github/workflows/docker-publish.yml
+```
+
+The workflow:
+- **No secrets required** — uses `GITHUB_TOKEN` (built-in to every GitHub repo)
+- **Triggers automatically** on push to `main` and on version tags
+- **Tags the image** with semver on version tags, `main-{sha}` on branch pushes
+- **Validates and embeds** `connector-manifest.json` as OCI annotation on the image
+- **Verifies** the OCI annotation is present after build
+
+Publish your first release:
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+This produces:
+```
+ghcr.io/{org}/{repo}:1.0.0
+ghcr.io/{org}/{repo}:1.0
+ghcr.io/{org}/{repo}:1
+ghcr.io/{org}/{repo}:latest
+```
+
+The image can then be pulled and run locally using the `scripts/run-connector.sh` / `.bat` / `.ps1` scripts in this SDK.
+
 ## Repository structure
 
 ```
 hardys-connector-{class}-{platform}/
-  connector.py             ← CLI entry point + gRPC server
-  servicer.py              ← ConnectorService implementation
-  mock_data.py             ← synthetic data generators
-  config.py                ← config model (reads ConnectRequest)
+  connector.py              ← CLI entry point + gRPC server
+  servicer.py               ← ConnectorService implementation
+  mock_data.py              ← synthetic data generators
+  config.py                 ← config model (reads ConnectRequest)
   requirements.txt
   protos/
-    connector.proto        ← copy from hardys-connector-sdk
-  connector-manifest.json  ← OCI annotation source
-  Dockerfile               ← includes LABEL for manifest
+    connector.proto         ← copy from hardys-connector-sdk
+  connector-manifest.json   ← OCI annotation source
+  Dockerfile                ← includes LABEL for manifest
   docker-compose.yml
+  .github/
+    workflows/
+      docker-publish.yml    ← copy from hardys-connector-sdk/scripts/
   CLAUDE.md
   docs/
     auth-flow.md
