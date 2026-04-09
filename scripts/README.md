@@ -1,6 +1,8 @@
 # scripts/
 
-Utility scripts for working with Hardys connector images locally.
+Utility scripts for working with Hardys connector images locally and for CI/CD.
+
+---
 
 ## run-connector
 
@@ -96,3 +98,17 @@ scripts\run-connector.bat ghcr.io/juvantio/hardys-connector-lecture-teams:1.0.0 
 - Docker installed and running
 - Access to `ghcr.io/juvantio` (login with `docker login ghcr.io` if needed)
 - Optional: [grpcurl](https://github.com/fullstorydev/grpcurl) for the health check command
+
+---
+
+## docker-publish.yml
+
+GitHub Actions workflow template for building and pushing the connector image to `ghcr.io`.
+
+**Copy this file to your connector repo:**
+```bash
+mkdir -p .github/workflows
+cp scripts/docker-publish.yml .github/workflows/docker-publish.yml
+```
+
+See [docs/getting-started.md](../docs/getting-started.md) for full setup instructions.
