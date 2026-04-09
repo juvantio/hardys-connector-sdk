@@ -1,75 +1,158 @@
-# Getting Started — Hardys Connector SDK
+# Getting Started — Building a Hardys Connector
 
-This guide explains how to build a Hardys connector using the SDK.
+## What you need to implement
 
-## What you need
+Every lecture connector implements **two mandatory services** and one optional service:
 
-- The `.proto` file for your connector class from this repo
-- The class-specific SDK repo as your starting point
-  (e.g. `juvantio/hardys-connector-sdk-lecture` for the lecture class)
-- Docker for packaging
-- Python 3.12+ (or Go, Node.js, Java — the proto is language-agnostic)
+1. **`BaseConnectorService`** (from `protos/base/base.proto`) — common lifecycle, mandatory for all classes
+2. **`ConnectorService`** (from `protos/lecture/connector.proto`) — lecture-specific streaming and control
+3. **`ConnectorManagementService`** (optional) — pre-lecture discovery and activation
 
-## Step 1 — Fork the class SDK
+## Quickstart
+
+### 1. Clone the proto files
 
 ```bash
-git clone https://github.com/juvantio/hardys-connector-sdk-lecture.git
-cd hardys-connector-sdk-lecture
+git clone https://github.com/juvantio/hardys-connector-sdk.git
 ```
 
-The class SDK contains a full mock implementation. Replace mock methods with
-your platform-specific logic.
+You need:
+- `protos/base/base.proto` — `BaseConnectorService`
+- `protos/lecture/connector.proto` — `ConnectorService` (lecture class v2)
 
-## Step 2 — Understand the configuration model (ADR-008)
+### 2. Generate gRPC stubs
 
-| Level | Fields | Owner | When |
-|-------|--------|-------|------|
-| Static | connector_class, connector_id, version | Docker image | Build time |
-| Instance | instance_url, credentials, locale, timeouts | Core via RegisterResponse | Container boot |
-| Session | session_id, session_token, join_url | Core via ConnectRequest | Each session |
+**Python:**
+```bash
+python -m grpc_tools.protoc \
+  -I protos/base -I protos/lecture \
+  --python_out=. --grpc_python_out=. \
+  protos/base/base.proto protos/lecture/connector.proto
+```
 
-In production, `config.json` is not used — all config arrives from Hardys Core via gRPC.
+**Node.js:**
+```bash
+npm install @grpc/grpc-js @grpc/proto-loader
+# Load protos dynamically — no codegen step required
+```
 
-## Step 3 — Implement GetConfigSchema()
+**Go:**
+```bash
+protoc --go_out=. --go-grpc_out=. \
+  -I protos/base -I protos/lecture \
+  protos/base/base.proto protos/lecture/connector.proto
+```
 
-Every connector must return a JSON Schema describing its instance-level config:
+### 3. Implement the services
+
+Minimum implementation for `BaseConnectorService`:
+- `Register` — receive config, declare capabilities
+- `Disconnect` — graceful shutdown
+- `HealthCheck` — return healthy status, version, capabilities
+- `GetConfigSchema` — return fields your connector needs in ConnectorConfig
+
+Minimum implementation for `ConnectorService` (lecture):
+- `Connect` — join the lecture; emit `LectureStartedCallbackEvent` on StreamEvents when ready
+- `StreamAudio` or `StreamAudioVideo` — stream audio (and optionally video)
+- `StreamChat` — stream incoming chat messages
+- `StreamEvents` — emit platform events + lifecycle control events
+- `SendChat` — send a message to session chat
+- `SendControl` — receive abort/pause/resume commands from Core
+- `TestStream` — return synthetic audio frames (for testing)
+
+### 4. Emit lifecycle events correctly
+
+All lifecycle signals travel as typed events on `StreamEvents`. No callback servers needed.
 
 ```python
-CONNECTOR_CONFIG_SCHEMA = {
-    "$schema": "http://json-schema.org/draft-07/schema#",
-    "title": "My Platform Connector",
-    "type": "object",
-    "properties": {
-        "instance_url": {"type": "string", "title": "Platform Base URL"},
-        # "api_key": {"type": "password", "title": "API Key"},
-        # "region": {"type": "enum", "enum": ["eu", "us"], "title": "Region"},
-    },
-    "required": ["instance_url"],
-}
+# When connector has joined and is ready:
+yield LectureEvent(
+    lecture_started_cb=LectureStartedCallbackEvent(
+        lecture=lecture_ref,
+        details=lecture_details
+    ),
+    timestamp=int(time.time() * 1000)
+)
+
+# When an error occurs:
+yield LectureEvent(
+    lecture_error=LectureErrorEvent(
+        error=LectureError(
+            error_id=str(uuid.uuid4()),
+            type=LectureErrorType.ERROR_PLATFORM_DISCONNECT,
+            severity=LectureErrorSeverity.SEVERITY_ERROR,
+            retryable=True,
+            retry_after_ms=5000,
+            timestamp=int(time.time() * 1000)
+        )
+    ),
+    timestamp=int(time.time() * 1000)
+)
+
+# Before closing streams:
+yield LectureEvent(
+    lecture_closed_cb=LectureClosedCallbackEvent(
+        lecture=lecture_ref,
+        reason="disconnect_requested"
+    ),
+    timestamp=int(time.time() * 1000)
+)
 ```
 
-Supported admin UI field types: `string`, `password`, `integer`, `boolean`, `enum`.
+### 5. Populate AudioFrame correctly
 
-## Step 4 — Implement the streaming methods
+```python
+# Core passes InstructorInfo in ConnectRequest.
+# Match against platform roster to populate is_instructor.
+audio_frame = AudioFrame(
+    data=pcm_bytes,              # PCM 16-bit 16kHz mono
+    timestamp=epoch_ms,
+    speaker_id=platform_user_id,
+    speaker_name=display_name,
+    speaker_role=SpeakerRole.SPEAKER_ROLE_PRESENTER,
+    is_instructor=(display_name == instructor_info.full_name),
+    source=AudioSource.AUDIO_SOURCE_MIX
+)
+```
 
-- `Register()` — apply instance config from `RegisterResponse.config`
-- `Connect()` — join using `request.session.session_token` / `request.session.join_url`
-- `StreamAudio()` — yield raw PCM frames (16-bit, 16kHz, mono, 20ms)
-- `StreamChat()` — yield plain text (strip HTML)
-- `SessionEvents()` — emit `platform_disconnected` when session ends
-- `GetConfigSchema()` — return JSON Schema for instance config
-
-## Step 5 — Test in isolation
+### 6. Add mandatory CLI entry points
 
 ```bash
-python connector.py health
-python connector.py run --mock --duration 30 --output audio.wav
-python connector.py serve --port 50051
+python connector.py health --config config.json
+python connector.py run --lecture <lecture_id> --output all
+python connector.py run --mock --duration 60
 ```
 
-## Step 6 — Package and publish
+## Repository structure
+
+```
+hardys-connector-{class}-{platform}/
+  connector.py           ← CLI entry point + gRPC server
+  config.py              ← config model
+  requirements.txt
+  package.json           ← if Node.js components present
+  protos/
+    base.proto           ← copy from hardys-connector-sdk
+    connector.proto      ← copy from hardys-connector-sdk
+  CLAUDE.md              ← context for Claude Code
+  Dockerfile
+  docker-compose.yml
+  config.json            ← local dev only — NOT used in production
+```
+
+## Testing your connector
+
+Every connector must work in isolation:
 
 ```bash
-docker build -t ghcr.io/YOUR_ORG/hardys-connector-{class}-{platform}:1.0.0 .
-docker push ghcr.io/YOUR_ORG/hardys-connector-{class}-{platform}:1.0.0
+# Health check
+python connector.py health --config config.json
+
+# Mock mode — no real lecture needed
+python connector.py run --mock --duration 60
+
+# Real lecture
+python connector.py run --lecture <id> --output all
 ```
+
+See `docs/governance.md` for certification requirements.

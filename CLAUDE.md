@@ -1,58 +1,48 @@
 # CLAUDE.md — hardys-connector-sdk
 
-This file provides context for AI coding assistants working in this repository.
+Context for Claude Code working in this repository.
 
 ## What this repo is
 
-The **normative home for all Hardys connector `.proto` files** across all
-connector classes. This is the multi-class SDK.
+Normative gRPC proto definitions for the Hardys Connector Framework (HCF). This is the single source of truth — all connectors copy these protos, never modify them locally.
 
-It does NOT contain reference implementations — those live in class-specific
-SDK repos (`hardys-connector-sdk-lecture`, etc.).
+**Reference documents:** HCF v1.2 + LMS Architecture v0.6 (Apr 2026, in project knowledge).
 
-## Repo structure
+## Proto files
 
-```
-protos/
-  lecture/connector.proto    <- lecture class — ConnectorService + ManagementService
-  content/                   <- future
-  identity/                  <- future
-  assessment/                <- future
-docs/
-  getting-started.md
-  connector-classes.md
-  governance.md
-```
+| File | Package | Purpose |
+|---|---|---|
+| `protos/base/base.proto` | `hardys.connector.base.v1` | BaseConnectorService — mandatory all classes |
+| `protos/lecture/connector.proto` | `hardys.connector.lecture.v2` | Lecture class contract |
 
-## Architecture decisions in effect
+## Key architecture decisions (do not change without explicit instruction)
 
-| ADR | Title | What it means here |
-|-----|-------|--------------------|
-| [ADR-005](https://github.com/juvantio/hardys-pm/blob/main/docs/decisions/ADR-005-grpc-connector-protocol.md) | gRPC as connector protocol | All connector contracts are defined as .proto files here |
-| [ADR-006](https://github.com/juvantio/hardys-pm/blob/main/docs/decisions/ADR-006-connector-class-taxonomy.md) | Connector class taxonomy | One subdirectory per class under protos/ |
-| [ADR-008](https://github.com/juvantio/hardys-pm/blob/main/docs/decisions/ADR-008-connector-configuration-model.md) | Configuration model | Three-level config; GetConfigSchema() in every connector |
+1. **Fully event-driven — no callback servers.** Lifecycle signals (lecture start, close, error) travel as typed events on `StreamEvents` (fields 21–23 in the `LectureEvent` oneof). There is no `HardysCoreCallbackService`.
 
-## Proto versioning rules
+2. **Two mandatory services + one optional.** `BaseConnectorService` (all classes) + `ConnectorService` (lecture-specific) + optional `ConnectorManagementService`. Do not merge them.
 
-- Field numbers are PERMANENT — never reuse or change a field number
-- Adding new fields is always backward compatible
-- Removing or renaming fields is a breaking change — requires a major version bump
-- New messages and services can be added freely
-- Breaking changes require updating the package name (e.g. v2) and a migration guide
+3. **`StreamAudio` vs `StreamAudioVideo`.** These are two distinct methods — not one. `StreamAudio` returns `stream AudioFrame` (PCM only). `StreamAudioVideo` returns `stream MediaFrame` (audio+video synchronized). Both can coexist — connector declares which it supports via capabilities.
 
-## Governance
+4. **`InstructorInfo` in `ConnectRequest`.** Core tells the connector who the instructor is. The connector matches against the platform roster and populates `AudioFrame.is_instructor`. The connector does NOT determine independently who the instructor is.
 
-To propose a contract change: open a PR with the proto change, describe motivation
-and backward compatibility impact, tag with the relevant class label.
+5. **`SpeakerRole` enum.** `SPEAKER_ROLE_PRESENTER` = has session control. `SPEAKER_ROLE_PARTICIPANT` = student or guest. The connector populates this from the platform roster — it is platform metadata, not inference.
 
-To propose a new connector class: see `docs/governance.md`.
+6. **`LectureError` is typed.** Use `LectureErrorType` enum + `LectureErrorSeverity` + typed `LectureErrorContext` oneof. Never use stringly-typed error details.
 
-## Key proto contracts (lecture class)
+7. **`ConnectorManagementService` is optional.** Set `management_supported=false` in `HealthCheck` if not implementing. Renaming: all session→lecture (`ListLectures`, `GetLecture`, `ActivateLecture`).
 
-The `lecture/connector.proto` defines:
-- `ConnectorService` — mandatory for all lecture connectors
-- `ConnectorManagementService` — optional session discovery
-- `GetConfigSchema()` — connector returns JSON Schema for its instance config
-- `SessionRef.session_token` — canonical platform token (guest token, meeting ID)
-- `SessionRef.join_url` — full URL when available
-- `RegisterRequest` — connector identifies itself; Core sends config in `RegisterResponse`
+8. **Package version is `lecture.v2`.** `v1` is the old contract (single file, `SessionRef`, `StreamVideo`, no `LectureError`). Any connector claiming PCAF compliance must use `v2`.
+
+## Adding new event types
+
+To add a new event to `StreamEvents`:
+1. Define the message (e.g. `MyNewEvent { ... }`)
+2. Add a field to `LectureEvent.oneof` using the next available field number
+3. Update `docs/governance.md` changelog
+4. This is backward-compatible — minor version bump only
+
+## Naming conventions
+
+- connector_id: `{class}.{platform}` — e.g. `lecture.collaborate_guest`
+- Proto packages: `hardys.connector.{class}.{version}` — e.g. `hardys.connector.lecture.v2`
+- Repo names: `juvantio/hardys-connector-{class}-{platform}` — e.g. `juvantio/hardys-connector-lecture-collaborate-guest`

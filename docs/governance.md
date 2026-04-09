@@ -1,44 +1,67 @@
 # Governance
 
-## Proposing a contract change (existing class)
+## Versioning
 
-**Non-breaking (always safe):**
-- Adding a new field (use next available field number)
-- Adding a new message or rpc
-- Adding a new enum value
+Each class contract is versioned independently using semantic versioning on the proto package:
 
-**Breaking (requires major version bump):**
-- Removing or renaming a field
-- Changing a field number or type
-- Removing an rpc
+```
+package hardys.connector.lecture.v2;
+package hardys.connector.content.v1;
+```
 
-**Process:**
-1. Open a PR with the proto change and motivation
-2. Tag with the relevant class label (e.g. `class:lecture`)
-3. For breaking changes: include migration guide, bump package version
-   (e.g. `hardys.connector.lecture.v2`)
-4. Update the class SDK repo after proto is merged
+- **Backward-compatible additions** (new optional fields, new methods, new `LectureEvent` types in the `oneof`) → minor version bump
+- **Breaking changes** (removed fields, changed semantics, renamed messages) → major version bump, new package name
+- `BaseConnectorService` (`base.v1`) is versioned separately and changes infrequently
+
+### Current versions
+
+| Package | Version | Status |
+|---|---|---|
+| `hardys.connector.base` | v1 | Stable |
+| `hardys.connector.lecture` | v2 | Active — see CHANGELOG |
 
 ## Proposing a new connector class
 
-A new class is needed when a new *category* of integration is required —
-not a new platform within an existing category.
+A new connector class is needed when you are integrating a **new category** of external system, not a new platform within an existing class.
 
-Examples warranting a new class:
-- Content repositories (documents, recordings) → `content` class
-- Identity systems (user profiles, roles) → `identity` class
+1. Open an issue in `juvantio/hardys-connector-sdk` titled `Proposal: new connector class — {class_name}`
+2. Describe: what external system category this class integrates, what data flows are required, why an existing class cannot be extended
+3. Juvant reviews and either approves or proposes an extension of an existing class
+4. Upon approval: define `base.proto` and `connector.proto` for the new class, create the class specification document, update `docs/connector-classes.md`
 
-Examples that do NOT warrant a new class:
-- New video conferencing platform (Teams, Zoom) → `lecture` class, new connector_id
+## Third-party connector certification
 
-**Process:**
-1. Open an issue describing: what it integrates, data flows needed, why existing classes don't fit
-2. If approved: new proto file, new class SDK repo, new entry in `docs/connector-classes.md`, new section in HCF v1.0
+Third-party developers are free to build connectors implementing any class contract. To be listed in the official Hardys Connector Registry, a connector must:
 
-## Versioning policy
+- Implement all mandatory methods of `BaseConnectorService`
+- Implement all mandatory methods of the class-specific `ConnectorService`
+- Emit correct lifecycle events on `StreamEvents` (`LectureStartedCallbackEvent`, `LectureClosedCallbackEvent`, `LectureErrorEvent`)
+- Pass the SDK test harness in both real and mock mode
+- Expose all mandatory CLI entry points (`health`, `run`, `run --mock`)
+- Provide `auth-flow.md` and `session-flow.md` documentation
+- Pass a security review of credential handling (no secrets in logs, no secrets in config.json in production)
 
-Proto packages follow semantic versioning in the package name:
-- `hardys.connector.lecture.v1` — current stable
-- `hardys.connector.lecture.v2` — future breaking change
+Certification is managed by Juvant. Uncertified connectors can be used but are not listed in the official registry.
 
-Hardys Core may support multiple versions simultaneously during migrations.
+## CHANGELOG
+
+### lecture.v2 (Apr 2026)
+- **BREAKING:** `hardys.connector.lecture.v1` → `hardys.connector.lecture.v2`
+- `StreamVideo` removed → `StreamAudio` (audio-only) + `StreamAudioVideo` (`MediaFrame`, audio+video)
+- `SessionEvents` → `StreamEvents` with full typed `LectureEvent` oneof (23 event types)
+- Three lifecycle control events: `LectureStartedCallbackEvent`, `LectureClosedCallbackEvent`, `LectureErrorEvent`
+- `SendControl` added (`AbortCommand`, `PauseCommand`, `ResumeCommand`)
+- `session` → `lecture` rename throughout (`SessionRef`→`LectureRef`, `SessionConfig`→`LectureConfig`, etc.)
+- `InstructorInfo` struct in `ConnectRequest` (replaces `instructor_name` string)
+- `SpeakerRole` enum + `speaker_name` + `is_instructor` in `AudioFrame`
+- `SpeakerChangedEvent` extended with `speaker_role` + `is_instructor`
+- `ParticipantJoinedEvent` extended with `role` (`SpeakerRole`)
+- `ConnectorManagementService` renamed: `ListSessions`→`ListLectures`, `GetSession`→`GetLecture`, `ActivateSession`→`ActivateLecture`
+- `ActivateLectureRequest` includes `InstructorInfo`
+- `LectureError` full taxonomy: 25 error types, 4 severity levels, typed `LectureErrorContext` oneof
+- `ConnectorCapabilities` extended: `native_diarization`, `native_transcript`
+- `HardysCoreCallbackService` removed — no callback servers
+- `BaseConnectorService` extracted to `protos/base/base.proto` with `ConfigSchemaField` replacing JSON Schema string
+
+### lecture.v1 (Mar 2026)
+- Initial release

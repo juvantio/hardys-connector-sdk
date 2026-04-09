@@ -1,93 +1,76 @@
 # hardys-connector-sdk
 
-The multi-class SDK for Hardys Connector agents.
+Normative gRPC contract definitions for all Hardys connector classes.
 
-This repository is the **normative home for all `.proto` files** across all
-Hardys connector classes. It defines the gRPC contracts that every connector
-must implement to be compatible with Hardys Core.
-
-**Class-specific SDKs** (reference implementations and templates) live in
-separate repos — one per class:
-
-| Class | SDK repo | What it integrates |
-|-------|----------|--------------------|
-| `lecture` | [`juvantio/hardys-connector-sdk-lecture`](https://github.com/juvantio/hardys-connector-sdk-lecture) | Live teaching sessions (Collaborate, Teams, Zoom, Meet) |
-| `content` | `juvantio/hardys-connector-sdk-content` (future) | Content repositories |
-| `identity` | `juvantio/hardys-connector-sdk-identity` (future) | Identity systems |
-| `assessment` | `juvantio/hardys-connector-sdk-assessment` (future) | Assessment platforms |
-
----
+This repository is the single source of truth for the Hardys Connector Framework (HCF). All OOTB connectors and third-party connectors implement the contracts defined here.
 
 ## Repository structure
 
 ```
-hardys-connector-sdk/
-  protos/
-    lecture/
-      connector.proto    <- lecture class contract (ConnectorService + ManagementService)
-    content/             <- future
-    identity/            <- future
-    assessment/          <- future
-  docs/
-    getting-started.md   <- how to build a connector
-    connector-classes.md <- class taxonomy and data flows
-    governance.md        <- how to propose new classes or contract changes
-  README.md
-  CLAUDE.md
+protos/
+  base/
+    base.proto               ← BaseConnectorService — mandatory for ALL classes (v1)
+  lecture/
+    connector.proto          ← Lecture class ConnectorService (v2)
+content/                     ← future
+identity/                    ← future
+assessment/                  ← future
+docs/
+  getting-started.md         ← Build your first connector
+  connector-classes.md       ← Class taxonomy and naming
+  event-driven-pattern.md    ← StreamEvents lifecycle events + SendControl
+  management-service.md      ← ConnectorManagementService pattern
+  governance.md              ← Versioning, changelog, certification
+README.md
+CLAUDE.md
 ```
 
----
+## Quick start
 
-## How to use the protos
+1. Read `docs/getting-started.md`
+2. Copy `protos/base/base.proto` and `protos/lecture/connector.proto` into your connector repo
+3. Generate stubs for your language
+4. Implement `BaseConnectorService` + `ConnectorService` (lecture)
+5. Emit lifecycle events on `StreamEvents` — see `docs/event-driven-pattern.md`
 
-Copy the relevant `.proto` file into your connector repo and generate stubs:
+## Architecture
 
-```bash
-# Python
-python -m grpc_tools.protoc \
-  -I protos \
-  --python_out=. \
-  --grpc_python_out=. \
-  protos/lecture/connector.proto
+### Fully event-driven — no callback servers
 
-# Go
-protoc --go_out=. --go-grpc_out=. protos/lecture/connector.proto
+All connector→Core signals travel as typed events on `StreamEvents`. No second gRPC server to deploy.
 
-# Node.js — use @grpc/proto-loader at runtime (no codegen needed)
-```
+- **Core → Connector:** method calls (`Register`, `Connect`, `SendControl`, etc.)
+- **Connector → Core:** typed events on `StreamEvents` (platform events + lifecycle control events)
 
----
+### Three gRPC services per connector
 
-## Connector naming conventions
+| Service | Mandatory | Proto |
+|---|---|---|
+| `BaseConnectorService` | Yes — all classes | `protos/base/base.proto` |
+| `ConnectorService` (lecture) | Yes — lecture class | `protos/lecture/connector.proto` |
+| `ConnectorManagementService` | No — optional | `protos/lecture/connector.proto` |
 
-**connector_id:** `{class}.{platform}` — e.g. `lecture.collaborate_guest`
+## Official connectors
 
-**Connector implementation repos:** `juvantio/hardys-connector-{class}-{platform}`
+| Connector | connector_id | management_supported | Milestone |
+|---|---|---|---|
+| Collaborate — Guest | `lecture.collaborate_guest` | false | Pilot |
+| Collaborate — API | `lecture.collaborate_api` | true | MVP |
+| Microsoft Teams | `lecture.teams` | true | MVP |
+| Google Meet | `lecture.google_meet` | true | Production |
+| Zoom | `lecture.zoom` | true | Production |
 
-**Class SDK repos:** `juvantio/hardys-connector-sdk-{class}`
+## Package versions
 
----
+| Package | Version | File |
+|---|---|---|
+| `hardys.connector.base` | v1 | `protos/base/base.proto` |
+| `hardys.connector.lecture` | v2 | `protos/lecture/connector.proto` |
 
-## Configuration model (ADR-008)
+See `docs/governance.md` for the full changelog.
 
-Three levels, three lifecycle owners:
+## Related repositories
 
-| Level | Fields | Owner | When |
-|-------|--------|-------|------|
-| **Static** | connector_class, connector_id, version | Baked into Docker image | Build time |
-| **Instance** | instance_url, credentials, locale, timeouts | Hardys Core via RegisterResponse | Container boot |
-| **Session** | session_id, session_token, join_url | Hardys Core via ConnectRequest | Each session |
-
-**GetConfigSchema()** — every connector exposes a JSON Schema describing its
-instance-level configuration fields. Hardys Core reads this and dynamically
-generates the admin UI form. No hardcoded connector fields in Core.
-
----
-
-## Related
-
-- [ADR-005](https://github.com/juvantio/hardys-pm/blob/main/docs/decisions/ADR-005-grpc-connector-protocol.md) — gRPC as connector protocol
-- [ADR-006](https://github.com/juvantio/hardys-pm/blob/main/docs/decisions/ADR-006-connector-class-taxonomy.md) — connector class taxonomy
-- [ADR-007](https://github.com/juvantio/hardys-pm/blob/main/docs/decisions/ADR-007-connector-deployment-model.md) — deployment model
-- [ADR-008](https://github.com/juvantio/hardys-pm/blob/main/docs/decisions/ADR-008-connector-configuration-model.md) — configuration model
-- HCF v1.0 — Hardys Connector Framework specification
+- `juvantio/hardys-connector-lecture-collaborate-guest` — Pilot connector (in progress)
+- `juvantio/hardys-connector-sdk-lecture` — Reference implementation
+- `juvantio/hardys-pm` — Project management

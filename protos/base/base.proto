@@ -1,0 +1,110 @@
+syntax = "proto3";
+package hardys.connector.base.v1;
+
+// =============================================================================
+// Hardys Connector Framework — BaseConnectorService
+// Version: base.v1
+// =============================================================================
+//
+// BaseConnectorService is mandatory for ALL connector classes.
+// Every connector — regardless of class — must implement these methods.
+// Class-specific methods are defined in the class-specific connector.proto.
+//
+// Reference: Hardys Connector Framework (HCF) v1.2
+
+// -----------------------------------------------------------------------------
+// Configuration
+// -----------------------------------------------------------------------------
+
+// ConnectorConfig is sent by Hardys Core to the connector in RegisterResponse.
+// Instance-level configuration: applies for the full lifetime of the container.
+// NOT lecture config (that goes in ConnectRequest via class-specific proto).
+message ConnectorConfig {
+  string instance_url               = 1;  // platform base URL
+  map<string, string> credentials   = 2;  // platform secrets — NEVER logged
+  map<string, string> params        = 3;  // arbitrary instance-level params
+  string locale                     = 4;  // e.g. "it_IT", "en_EN"
+  uint32 inactivity_timeout_seconds = 5;  // emit timeout event after N seconds — default: 600
+  string log_level                  = 6;  // "DEBUG", "INFO", "WARNING"
+}
+
+message ConnectorCapabilities {
+  repeated string capabilities = 1;  // class-specific capability strings
+}
+
+// -----------------------------------------------------------------------------
+// Registration
+// -----------------------------------------------------------------------------
+
+// Connector -> Core: identify yourself at boot.
+message RegisterRequest {
+  string connector_class = 1;  // e.g. "lecture"
+  string connector_id    = 2;  // e.g. "lecture.collaborate_guest"
+  string version         = 3;  // semantic version
+}
+
+// Core -> Connector: here is your instance configuration.
+message RegisterResponse {
+  ConnectorConfig       config       = 1;  // instance config FROM Core
+  ConnectorCapabilities capabilities = 2;  // Core acknowledges capabilities
+}
+
+// -----------------------------------------------------------------------------
+// Disconnect
+// -----------------------------------------------------------------------------
+
+message DisconnectRequest  {}
+message DisconnectResponse {}
+
+// -----------------------------------------------------------------------------
+// Health
+// -----------------------------------------------------------------------------
+
+message HealthCheckRequest {}
+message HealthCheckResponse {
+  bool                  healthy              = 1;
+  string                version              = 2;
+  string                connector_class      = 3;
+  string                connector_id         = 4;
+  ConnectorCapabilities caps                 = 5;
+  bool                  management_supported = 6;  // true → Faculty App shows lecture list
+  map<string, string>   diagnostics          = 7;
+}
+
+// -----------------------------------------------------------------------------
+// Config Schema — admin UI generation
+// -----------------------------------------------------------------------------
+
+// Called by Hardys Core when an admin registers this connector.
+// The connector declares its own configuration fields so Core can
+// render the admin UI without any platform-specific knowledge.
+message ConfigSchemaRequest {}
+
+message ConfigSchemaField {
+  string name        = 1;  // field key in ConnectorConfig.params or credentials
+  string type        = 2;  // "string" | "secret" | "url" | "integer" | "boolean"
+  string label       = 3;  // human-readable label for admin UI
+  string description = 4;  // help text shown in admin UI
+  bool   required    = 5;
+  string default_val = 6;  // optional default value
+}
+
+message ConfigSchemaResponse {
+  repeated ConfigSchemaField fields = 1;
+}
+
+// -----------------------------------------------------------------------------
+// BaseConnectorService — mandatory for ALL connector classes
+// -----------------------------------------------------------------------------
+
+service BaseConnectorService {
+  // Lifecycle
+  rpc Register        (RegisterRequest)     returns (RegisterResponse);
+  rpc Disconnect      (DisconnectRequest)   returns (DisconnectResponse);
+
+  // Observability
+  rpc HealthCheck     (HealthCheckRequest)  returns (HealthCheckResponse);
+
+  // Admin UI — connector declares its own config schema
+  rpc GetConfigSchema (ConfigSchemaRequest) returns (ConfigSchemaResponse);
+}

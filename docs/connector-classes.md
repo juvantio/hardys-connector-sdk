@@ -1,37 +1,43 @@
 # Connector Classes
 
-A connector class defines a category of integration — not a specific platform,
-but a type of relationship between Hardys and the outside world.
+A connector class defines a category of integration — not a specific platform, but a type of relationship between Hardys and the outside world.
 
 ## Current classes
 
-| Class | What it integrates | Proto | SDK repo | Status |
-|-------|--------------------|-------|----------|--------|
-| `lecture` | Live teaching sessions | `protos/lecture/connector.proto` | `hardys-connector-sdk-lecture` | Specified v0.5 |
-| `content` | Content repositories | future | future | Not yet defined |
-| `identity` | Identity systems | future | future | Not yet defined |
-| `assessment` | Assessment platforms | future | future | Not yet defined |
+| Class | What it integrates | Primary data flows | Status |
+|---|---|---|---|
+| `lecture` | Live lecture platforms (Collaborate, Teams, Meet, Zoom) | Audio IN, Video IN, Chat IN/OUT, Events IN/OUT | Specified — v0.6 |
+| `content` | Content repositories (LMS materials, Panopto, Drive) | Documents IN, Recordings IN, Metadata IN | Not yet defined |
+| `identity` | Identity and profile systems (HR, directory, LinkedIn) | Profile data IN, Role data IN | Not yet defined |
+| `assessment` | Assessment platforms (external quiz tools, proctoring) | Results IN, Triggers OUT | Not yet defined |
 
-## Lecture class — data flows
+## connector_id naming convention
 
 ```
-Platform --audio--> ConnectorService --AudioFrame--> Hardys Core
-Platform --video--> ConnectorService --VideoFrame--> Hardys Core
-Platform --chat-->  ConnectorService --ChatMessage-> Hardys Core
-Core     --msg-->   ConnectorService --SendChat----> Platform
+{class}.{platform}
 ```
 
-- `StreamAudio`: raw PCM 16-bit 16kHz mono — no transcription in connector
-- `StreamVideo`: raw frames — no analysis in connector
-- `StreamChat`: plain text — connector strips HTML
-- `GetConfigSchema()`: connector declares instance config as JSON Schema
-- `ConnectorManagementService`: optional session discovery
+Examples:
+```
+lecture.collaborate_guest
+lecture.collaborate_api
+lecture.teams
+lecture.google_meet
+lecture.zoom
+content.panopto
+identity.linkedin
+```
 
-## Faculty App UX by management_supported
+## Three gRPC services per connector
 
-| management_supported | Faculty App shows |
-|----------------------|------------------|
-| `true` | Session list from platform — tap to activate |
-| `false` | Text field — paste guest link or session token |
+Every connector implements:
 
-## Adding a new class — see `docs/governance.md`
+| Service | Mandatory | Direction | Proto file |
+|---|---|---|---|
+| `BaseConnectorService` | Yes — all classes | Core → Connector | `protos/base/base.proto` |
+| `ConnectorService` (class-specific) | Yes — class-specific | Core → Connector | `protos/{class}/connector.proto` |
+| `ConnectorManagementService` | No — optional | Core → Connector | `protos/{class}/connector.proto` |
+
+## Proposing a new class
+
+Open an issue in `juvantio/hardys-connector-sdk` titled `Proposal: new connector class — {class_name}`. See `docs/governance.md` for the full process.
