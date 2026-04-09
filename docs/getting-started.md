@@ -2,112 +2,148 @@
 
 ## What you need to implement
 
-Every lecture connector implements **two mandatory services** and one optional:
+Every lecture connector implements **one service**:
 
-1. **`BaseConnectorService`** (`protos/base/base.proto`) — common lifecycle, mandatory all classes
-2. **`ConnectorService`** (`protos/lecture/connector.proto`) — lecture streaming and control
-3. **`ConnectorManagementService`** (optional) — pre-lecture discovery and activation
+**`ConnectorService`** (`protos/lecture/connector.proto`) — all lifecycle, streaming, and control methods.
+
+There is no `BaseConnectorService`. All methods are in `ConnectorService`.
 
 ## Key architectural rules
 
-- **No locale in connectors.** Locale is a Core concern. Connectors never generate user-facing text in a specific language — they pass raw data.
-- **MediaFrame is the universal frame type.** Both `StreamAudio` and `StreamAudioVideo` return `stream MediaFrame`. The `type` field (`AUDIO` or `AUDIO_VIDEO`) declares the content of `data`. There is no separate `AudioFrame` or `VideoFrame`.
-- **Connectors assemble audio+video.** When the platform provides audio and video as separate streams, the connector multiplexes them into a single `data` blob before yielding the frame. Core never recombines two separate frames.
-- **StreamTranscript for native transcripts.** Teams, Zoom and similar platforms provide transcription natively. If the connector can receive these, it normalizes them into `TranscriptChunk` and declares capability `"native_transcript"`. The connector does NOT perform STT — that violates the raw-data principle.
+**Zero env vars for config.** Configuration does NOT come from environment variables. Everything arrives in `ConnectRequest` — instance config (from Cosmos DB) + lecture runtime info. The container starts clean and waits for `Connect()`.
+
+**Container never exits by itself.** After `Disconnect()`, the connector closes the session and waits. It does NOT call `sys.exit()`. Core stops the ACA Container App via Azure API.
+
+**No locale in connectors.** Locale is a Core concern. Connectors pass raw data and never generate user-facing text in a specific language.
+
+**MediaFrame is the universal frame type.** Both `StreamAudio` and `StreamAudioVideo` return `stream MediaFrame`. The `MediaFrameType` field declares the content. There is no separate `AudioFrame` or `VideoFrame`.
+
+**Config validation is mandatory.** Validate all `required=true` fields at the start of `Connect()` before any platform operation. Return error immediately if any field is missing.
+
+**No STT in connectors.** If the platform provides native transcripts, normalize them into `TranscriptChunk`. Never perform speech-to-text — that violates the raw-data principle.
+
+## connector-manifest.json
+
+Every connector image must include a `connector-manifest.json` file and publish it as an OCI annotation:
+
+```dockerfile
+COPY connector-manifest.json /app/connector-manifest.json
+LABEL org.hardys.connector.manifest-path=/app/connector-manifest.json
+```
+
+Core reads the manifest with `docker inspect` — without starting the container — to build the admin UI dynamically.
+
+See `connector-manifest-schema.json` for the full schema and `connector-manifest-example.json` for a complete example.
 
 ## Quickstart
 
-### 1. Clone the proto files
+### 1. Clone the proto file
 
 ```bash
 git clone https://github.com/juvantio/hardys-connector-sdk.git
 ```
 
-You need:
-- `protos/base/base.proto` — `BaseConnectorService`
-- `protos/lecture/connector.proto` — `ConnectorService` (lecture class v2)
+You need: `protos/lecture/connector.proto`
 
 ### 2. Generate gRPC stubs
 
 **Python:**
 ```bash
 python -m grpc_tools.protoc \
-  -I protos/base -I protos/lecture \
+  -I protos/lecture \
   --python_out=. --grpc_python_out=. \
-  protos/base/base.proto protos/lecture/connector.proto
+  protos/lecture/connector.proto
 ```
 
-### 3. Implement the services
+**Node.js:**
+```bash
+npm install @grpc/grpc-js @grpc/proto-loader
+# Load proto dynamically — no codegen step required
+```
 
-**BaseConnectorService** (mandatory):
-- `Register` — receive config, store it, return capabilities
-- `Disconnect` — graceful shutdown
-- `HealthCheck` — healthy status, version, capabilities
-- `GetConfigSchema` — declare your config fields for admin UI
+### 3. Implement ConnectorService
 
-**ConnectorService** (lecture):
-- `Connect` — emit `LectureStartEvent` FIRST, then join platform
+Mandatory methods:
+- `HealthCheck` — return healthy status, version, connector_id
+- `Connect` — validate required fields FIRST, emit `LectureStartEvent`, join platform
+- `Disconnect` — emit `LectureCloseEvent` FIRST, leave platform, wait (do NOT exit)
 - `StreamAudio` or `StreamAudioVideo` — yield `MediaFrame` continuously
 - `StreamChat` — yield `ChatMessage` as they arrive
 - `StreamEvents` — yield `LectureEvent` (platform + lifecycle events)
-- `StreamTranscript` — yield `TranscriptChunk` (if `native_transcript` capability)
-- `SendChat` — post a message to platform chat
-- `SendControl` — handle abort/pause/resume commands from Core
-- `TestStream` — yield synthetic `MediaFrame` for testing
+- `SendChat` — post message to platform chat
+- `SendControl` — handle abort/pause/resume
+- `TestStream` — yield synthetic `MediaFrame` (always implement — Core uses for validation)
+
+Optional methods:
+- `GetLectureConfigSchema` — return runtime_fields schema dynamically
+- `StreamTranscript` — only if `native_transcript` capability declared in manifest
 
 ### 4. Emit lifecycle events correctly
 
 ```python
-# FIRST instruction inside Connect():
-yield LectureEvent(
-    lecture_start=LectureStartEvent(lecture=lecture_ref, details=lecture_details),
-    timestamp=int(time.time() * 1000)
-)
+async def Connect(self, request, context):
+    # STEP 1: validate required fields
+    ok, err = validate_required_fields(request)
+    if not ok:
+        return ConnectResponse(connected=False, error=err)
 
-# FIRST instruction inside Disconnect():
-yield LectureEvent(
-    lecture_close=LectureCloseEvent(lecture=lecture_ref, reason="disconnect_requested"),
-    timestamp=int(time.time() * 1000)
-)
+    # STEP 2: emit LectureStartEvent — FIRST instruction after validation
+    await emit_event(LectureEvent(
+        lecture_start=LectureStartEvent(
+            session_id=request.session_id,
+            lecture_id=request.lecture_id,
+            lecture_name=request.lecture_name
+        ),
+        timestamp=now_ms()
+    ))
 
-# On error:
-yield LectureEvent(
-    lecture_error=LectureErrorEvent(
-        error=LectureError(
-            error_id=str(uuid.uuid4()),
-            type=LectureErrorType.ERROR_PLATFORM_DISCONNECT,
-            severity=LectureErrorSeverity.SEVERITY_ERROR,
-            retryable=True,
-            retry_after_ms=5000,
-            timestamp=int(time.time() * 1000)
-        )
-    ),
-    timestamp=int(time.time() * 1000)
-)
+    # STEP 3: join platform
+    # ... platform-specific join logic ...
+
+    return ConnectResponse(connected=True)
+
+async def Disconnect(self, request, context):
+    # STEP 1: emit LectureCloseEvent — FIRST instruction
+    await emit_event(LectureEvent(
+        lecture_close=LectureCloseEvent(
+            session_id=request.session_id,
+            reason="disconnect_requested"
+        ),
+        timestamp=now_ms()
+    ))
+
+    # STEP 2: leave platform
+    # ... platform-specific leave logic ...
+
+    # STEP 3: wait — do NOT exit. Core stops the container via ACA API.
+    return DisconnectResponse()
 ```
 
 ### 5. Populate MediaFrame correctly
 
 ```python
+# Determine is_instructor by matching speaker against ConnectRequest fields
+def is_instructor(speaker_name, request):
+    return (
+        speaker_name == request.instructor_full_name or
+        (request.instructor_id and speaker_id == request.instructor_id)
+    )
+
 # StreamAudio — audio only
 frame = MediaFrame(
-    data=pcm_bytes,                    # PCM 16-bit 16kHz mono
-    timestamp=epoch_ms,
+    data=pcm_bytes,            # PCM 16-bit 16kHz mono
+    timestamp=now_ms(),
     type=MediaFrameType.MEDIA_FRAME_AUDIO,
-    speaker_id=platform_user_id,
-    speaker_name=display_name,
     speaker_role=SpeakerRole.SPEAKER_ROLE_PRESENTER,
-    is_instructor=(display_name == instructor_info.full_name),
+    is_instructor=is_instructor(speaker_name, request),
     source=AudioSource.AUDIO_SOURCE_MIX
 )
 
 # StreamAudioVideo — audio+video multiplexed by connector
 frame = MediaFrame(
-    data=multiplexed_bytes,            # audio+video assembled by connector
-    timestamp=epoch_ms,
+    data=multiplexed_bytes,    # connector assembles — Core never recombines
+    timestamp=now_ms(),
     type=MediaFrameType.MEDIA_FRAME_AUDIO_VIDEO,
-    speaker_id=platform_user_id,
-    speaker_name=display_name,
     speaker_role=SpeakerRole.SPEAKER_ROLE_PRESENTER,
     is_instructor=True,
     source=AudioSource.AUDIO_SOURCE_SPEAKER
@@ -117,8 +153,7 @@ frame = MediaFrame(
 ### 6. Mandatory CLI entry points
 
 ```bash
-python connector.py health --config config.json
-python connector.py run --lecture <id> --output all
+python connector.py health
 python connector.py run --mock --duration 60
 ```
 
@@ -126,14 +161,28 @@ python connector.py run --mock --duration 60
 
 ```
 hardys-connector-{class}-{platform}/
-  connector.py
-  config.py
+  connector.py             ← CLI entry point + gRPC server
+  servicer.py              ← ConnectorService implementation
+  mock_data.py             ← synthetic data generators
+  config.py                ← config model (reads ConnectRequest)
   requirements.txt
   protos/
-    base.proto
-    connector.proto
-  CLAUDE.md
-  Dockerfile
+    connector.proto        ← copy from hardys-connector-sdk
+  connector-manifest.json  ← OCI annotation source
+  Dockerfile               ← includes LABEL for manifest
   docker-compose.yml
-  config.json   <- local dev only — NOT used in production
+  CLAUDE.md
+  docs/
+    auth-flow.md
+    session-flow.md
+```
+
+## Testing your connector
+
+```bash
+# Health check — no server needed
+python connector.py health
+
+# Mock mode — no real lecture needed
+python connector.py run --mock --duration 60
 ```

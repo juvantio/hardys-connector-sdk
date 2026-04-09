@@ -1,0 +1,137 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Hardys Connector Manifest Schema",
+  "description": "Schema for connector-manifest.json — published as OCI annotation on the connector image. Read by Hardys Core without starting the container.",
+  "type": "object",
+  "required": ["manifest_version", "connector_id", "connector_class", "version", "display_name", "capabilities", "config_schema"],
+  "properties": {
+    "manifest_version": {
+      "type": "string",
+      "description": "Version of the manifest format itself",
+      "example": "1.0"
+    },
+    "connector_id": {
+      "type": "string",
+      "description": "Unique connector identifier. Pattern: {class}.{platform}",
+      "pattern": "^[a-z]+\\.[a-z_]+$",
+      "examples": ["lecture.collaborate_api", "lecture.teams", "lecture.zoom"]
+    },
+    "connector_class": {
+      "type": "string",
+      "description": "Connector class. Currently only 'lecture' is defined.",
+      "enum": ["lecture", "content", "identity", "assessment"]
+    },
+    "version": {
+      "type": "string",
+      "description": "Semantic version of the connector implementation",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "display_name": {
+      "type": "string",
+      "description": "Human-readable name shown in Core admin UI"
+    },
+    "description": {
+      "type": "string",
+      "description": "Short description of the connector"
+    },
+    "capabilities": {
+      "type": "array",
+      "description": "Capability strings declared by this connector. Used by Core to route data streams.",
+      "items": {
+        "type": "string",
+        "enum": [
+          "audio",
+          "audio_video",
+          "chat_read",
+          "chat_write",
+          "native_diarization",
+          "native_transcript"
+        ]
+      }
+    },
+    "config_schema": {
+      "type": "object",
+      "required": ["readonly_fields", "instance_fields", "runtime_fields", "debug_fields"],
+      "properties": {
+        "readonly_fields": {
+          "type": "array",
+          "description": "Fields that are fixed and cannot be edited by admin. Shown for reference only.",
+          "items": {
+            "type": "object",
+            "required": ["name", "value", "label"],
+            "properties": {
+              "name": { "type": "string" },
+              "value": { "type": "string" },
+              "label": { "type": "string" }
+            }
+          }
+        },
+        "instance_fields": {
+          "type": "array",
+          "description": "Fields configured by admin at connector registration time. Saved in Cosmos DB. Passed in ConnectRequest.credentials or ConnectRequest.params.",
+          "items": { "$ref": "#/definitions/ConfigField" }
+        },
+        "runtime_fields": {
+          "type": "array",
+          "description": "Fields populated by Core at lecture time (not known at config time). Passed in ConnectRequest lecture runtime fields. Core uses these to render the lecture launch UI. May also be retrieved dynamically via GetLectureConfigSchema().",
+          "items": { "$ref": "#/definitions/ConfigField" }
+        },
+        "debug_fields": {
+          "type": "array",
+          "description": "Debug and observability fields. Shown in a separate Debug section in Core admin UI.",
+          "items": { "$ref": "#/definitions/ConfigField" }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "ConfigField": {
+      "type": "object",
+      "required": ["name", "type", "label"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Field key — maps to ConnectRequest field name or credentials/params key"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["string", "url", "secret", "integer", "boolean"],
+          "description": "Field type. 'secret' fields are masked in UI and encrypted in Cosmos DB"
+        },
+        "label": {
+          "type": "string",
+          "description": "Human-readable label shown in Core admin UI"
+        },
+        "description": {
+          "type": "string",
+          "description": "Help text shown in Core admin UI"
+        },
+        "required": {
+          "type": "boolean",
+          "description": "If true, Connect() MUST reject the call if this field is missing or empty",
+          "default": false
+        },
+        "editable": {
+          "type": "boolean",
+          "description": "If false, field is shown but cannot be edited (instance_fields only)",
+          "default": true
+        },
+        "default": {
+          "description": "Default value used if field is not provided"
+        },
+        "example": {
+          "type": "string",
+          "description": "Example value shown as placeholder in UI"
+        },
+        "min": {
+          "type": "number",
+          "description": "Minimum value (integer fields only)"
+        },
+        "max": {
+          "type": "number",
+          "description": "Maximum value (integer fields only)"
+        }
+      }
+    }
+  }
+}

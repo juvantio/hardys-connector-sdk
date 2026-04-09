@@ -1,0 +1,135 @@
+{
+  "manifest_version": "1.0",
+  "connector_id": "lecture.example",
+  "connector_class": "lecture",
+  "version": "1.0.0",
+  "display_name": "Example Lecture Connector",
+  "description": "Reference example of a connector-manifest.json for the lecture class. Copy and adapt for your platform.",
+  "capabilities": ["audio", "chat_read", "chat_write"],
+  "config_schema": {
+    "readonly_fields": [
+      {
+        "name": "connector_class",
+        "value": "lecture",
+        "label": "Connector Class"
+      },
+      {
+        "name": "connector_id",
+        "value": "lecture.example",
+        "label": "Connector ID"
+      }
+    ],
+    "instance_fields": [
+      {
+        "name": "instance_url",
+        "type": "url",
+        "label": "Platform URL",
+        "description": "Base URL of the platform instance",
+        "required": true,
+        "editable": true,
+        "example": "https://platform.example.com"
+      },
+      {
+        "name": "api_key",
+        "type": "secret",
+        "label": "API Key",
+        "description": "Platform API key. Stored encrypted. Required for API-based connectors, optional for guest-link-only connectors.",
+        "required": false,
+        "editable": true
+      },
+      {
+        "name": "inactivity_timeout_seconds",
+        "type": "integer",
+        "label": "Inactivity Timeout (seconds)",
+        "description": "Emit LectureErrorEvent after N seconds of silence. Prevents the connector from staying connected after an unexpected platform failure.",
+        "required": false,
+        "editable": true,
+        "default": 600,
+        "min": 60,
+        "max": 3600
+      }
+    ],
+    "runtime_fields": [
+      {
+        "name": "lecture_id",
+        "type": "string",
+        "label": "Lecture ID",
+        "description": "Platform lecture/session identifier",
+        "required": true
+      },
+      {
+        "name": "lecture_name",
+        "type": "string",
+        "label": "Lecture Name",
+        "description": "Human-readable name of the lecture",
+        "required": false
+      },
+      {
+        "name": "join_url",
+        "type": "url",
+        "label": "Join URL",
+        "description": "Platform join link or enrollment URL",
+        "required": true
+      },
+      {
+        "name": "instructor_id",
+        "type": "string",
+        "label": "Instructor Platform ID",
+        "description": "Platform user ID of the instructor — used for speaker identification",
+        "required": false
+      },
+      {
+        "name": "instructor_full_name",
+        "type": "string",
+        "label": "Instructor Full Name",
+        "description": "Used to match the instructor in the platform roster and populate MediaFrame.is_instructor",
+        "required": true
+      },
+      {
+        "name": "instructor_email",
+        "type": "string",
+        "label": "Instructor Email",
+        "description": "Alternative matching for instructor identification",
+        "required": false
+      },
+      {
+        "name": "audio_enabled",
+        "type": "boolean",
+        "label": "Audio Enabled",
+        "default": true,
+        "required": false
+      },
+      {
+        "name": "video_enabled",
+        "type": "boolean",
+        "label": "Video Enabled",
+        "default": false,
+        "required": false
+      },
+      {
+        "name": "chat_read_enabled",
+        "type": "boolean",
+        "label": "Chat Read Enabled",
+        "default": true,
+        "required": false
+      },
+      {
+        "name": "chat_write_enabled",
+        "type": "boolean",
+        "label": "Chat Write Enabled",
+        "default": true,
+        "required": false
+      }
+    ],
+    "debug_fields": [
+      {
+        "name": "debug_enabled",
+        "type": "boolean",
+        "label": "Enable Debug Logging",
+        "description": "Sets log level to DEBUG. Default is INFO. Enable only for troubleshooting — generates verbose output.",
+        "default": false,
+        "required": false
+      }
+    ]
+  }
+}

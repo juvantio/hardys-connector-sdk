@@ -1,80 +1,47 @@
-# ConnectorManagementService — Pre-Lecture Discovery and Activation
+# ConnectorManagementService — Optional Pre-Lecture Discovery
 
-## Overview
+`ConnectorManagementService` is **not defined in the proto contract**. If your platform has an API for lecture discovery and activation, you may implement it as an additional gRPC service in your connector.
 
-`ConnectorManagementService` is an **optional** service. Connectors declare whether they implement it via `management_supported` in `HealthCheckResponse`.
+If not implemented, return `UNIMPLEMENTED` status on any management-related calls.
 
-**Faculty App UX based on `management_supported`:**
-- `true` → Faculty App shows a list of today's lectures. Instructor taps to activate Hardys.
-- `false` → Faculty App shows a text field. Instructor pastes the guest link or session token.
+## Faculty App UX (implemented by Core)
 
-**Design principle: the Faculty App never calls platform APIs directly.** All platform interaction — lecture discovery, enrollment creation, join — goes through the connector's `ConnectorManagementService`.
+- If the connector supports management → Faculty App shows a lecture list, tap to activate
+- If not → Faculty App shows a text field for guest link / join URL
 
-## Which connectors implement it?
+Core determines support by inspecting the connector's capabilities or by attempting a `ListLectures` call.
 
-| Connector | `management_supported` | Reason |
-|---|---|---|
-| `lecture.collaborate_guest` | `false` | No API access — guest link only |
-| `lecture.collaborate_api` | `true` | Collaborate REST API with LTI credentials |
-| `lecture.teams` | `true` | Teams Meeting Bot SDK |
-| `lecture.google_meet` | `true` | Google Meet Media API |
-| `lecture.zoom` | `true` | Zoom Meeting SDK server-to-server OAuth |
-
-## Methods
-
-### ListLectures
-Returns today's lectures for a course. Faculty App calls this to show the lecture list.
+## Recommended interface (if implementing)
 
 ```proto
-message ListLecturesRequest {
-  string course_id = 1;
-  string date      = 2;  // ISO date YYYY-MM-DD — defaults to today
+service ConnectorManagementService {
+  rpc ListLectures    (ListLecturesRequest)    returns (ListLecturesResponse);
+  rpc GetLecture      (GetLectureRequest)      returns (LectureInfo);
+  rpc ActivateLecture (ActivateLectureRequest) returns (ActivateLectureResponse);
 }
 
-message LectureInfo {
-  string lecture_id    = 1;
-  string lecture_name  = 2;
-  string start_time    = 3;  // ISO 8601
-  string end_time      = 4;  // ISO 8601
-  bool   is_active     = 5;
-  bool   audio_enabled = 6;
-}
-```
+message ListLecturesRequest   { string course_id = 1; string date = 2; }
+message LectureInfo           { string lecture_id = 1; string lecture_name = 2; string start_time = 3; string end_time = 4; bool is_active = 5; bool audio_enabled = 6; }
+message ListLecturesResponse  { repeated LectureInfo lectures = 1; }
+message GetLectureRequest     { string lecture_id = 1; }
 
-### GetLecture
-Returns details for a specific lecture.
-
-### ActivateLecture
-Core calls this when the instructor taps to activate Hardys. The connector:
-1. Creates enrollment (if needed)
-2. Obtains the join URL
-3. Internally triggers the full `Connect` flow
-4. Returns `ActivateLectureResponse` with `ConnectResponse` details
-
-```proto
 message ActivateLectureRequest {
-  string         lecture_id  = 1;
-  LectureConfig  config      = 2;
-  InstructorInfo instructor  = 3;  // Core passes who the instructor is
+  string lecture_id           = 1;
+  bool   audio_enabled        = 2;
+  bool   video_enabled        = 3;
+  bool   chat_read_enabled    = 4;
+  bool   chat_write_enabled   = 5;
+  string instructor_id        = 6;
+  string instructor_full_name = 7;
+  string instructor_email     = 8;
 }
 
 message ActivateLectureResponse {
-  bool            success = 1;
-  string          error   = 2;
-  ConnectResponse details = 3;  // populated on success
+  bool   success    = 1;
+  string error      = 2;
+  string lecture_id = 3;
+  string join_url   = 4;  // populated on success — used in ConnectRequest
 }
 ```
 
-`InstructorInfo` is included in `ActivateLectureRequest` so the connector can match the instructor immediately when the lecture starts — without waiting for a separate `Connect` call.
-
-## Faculty App code path
-
-The Faculty App uses a single code path regardless of connector type:
-
-```
-1. Call HealthCheck → read management_supported
-2. If true:  Call ListLectures → show list → instructor taps → Call ActivateLecture
-   If false: Show text field → instructor pastes link → Core calls Connect directly
-```
-
-No platform-specific branching in the Faculty App.
+`ActivateLecture` internally creates the enrollment/join URL via the platform API. The Faculty App never sees platform credentials. The returned `join_url` is then used by Core in the subsequent `ConnectRequest`.
