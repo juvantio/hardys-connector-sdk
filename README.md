@@ -9,18 +9,24 @@ This repository is the single source of truth for the Hardys Connector Framework
 ```
 protos/
   lecture/
-    connector.proto          ← Lecture class ConnectorService (v2)
-content/                     ← future
-identity/                    ← future
-assessment/                  ← future
+    connector.proto              ← Lecture class ConnectorService (v2)
+  content/                       ← future
+  identity/                      ← future
+  assessment/                    ← future
 connector-manifest-schema.json   ← JSON schema for connector-manifest.json
 connector-manifest-example.json  ← Complete example manifest
+scripts/
+  run-connector.sh               ← Pull image, read OCI manifest, start container (macOS/Linux)
+  run-connector.bat              ← Same — Windows CMD
+  run-connector.ps1              ← Same — Windows PowerShell
+  docker-publish.yml             ← GitHub Actions workflow template — copy to your connector repo
+  README.md
 docs/
-  getting-started.md         ← Build your first connector
-  connector-classes.md       ← Class taxonomy and naming
-  event-driven-pattern.md    ← StreamEvents + SendControl pattern
-  management-service.md      ← Optional management service pattern
-  governance.md              ← Versioning, changelog, certification
+  getting-started.md             ← Build your first connector
+  connector-classes.md           ← Class taxonomy and naming
+  event-driven-pattern.md        ← StreamEvents + SendControl pattern
+  management-service.md          ← Optional management service pattern
+  governance.md                  ← Versioning, changelog, certification
 README.md
 CLAUDE.md
 ```
@@ -32,7 +38,8 @@ CLAUDE.md
 3. Generate stubs for your language
 4. Implement `ConnectorService`
 5. Publish `connector-manifest.json` as OCI annotation on your image
-6. See `docs/event-driven-pattern.md` for lifecycle event pattern
+6. Copy `scripts/docker-publish.yml` to `.github/workflows/` in your repo
+7. See `docs/event-driven-pattern.md` for lifecycle event pattern
 
 ## Architecture
 
@@ -66,6 +73,32 @@ No separate `AudioFrame` or `VideoFrame`.
 ### Config validation — mandatory
 
 Every connector MUST validate all `required=true` fields at the start of `Connect()` before any platform operation. Return error immediately if any field is missing.
+
+## Docker image publishing
+
+Every connector image is published to `ghcr.io` using the GitHub Actions workflow template in `scripts/docker-publish.yml`.
+
+**Setup (one-time per connector repo):**
+```bash
+mkdir -p .github/workflows
+cp scripts/docker-publish.yml .github/workflows/docker-publish.yml
+git add .github/workflows/docker-publish.yml
+git commit -m "ci: add Docker publish workflow"
+git push
+```
+
+**No secrets required** — the workflow uses the built-in `GITHUB_TOKEN`.
+
+**Publish a release:**
+```bash
+git tag v1.0.0 && git push origin v1.0.0
+# Produces: ghcr.io/{org}/{repo}:1.0.0, :1.0, :1, :latest
+```
+
+**Run locally:**
+```bash
+bash scripts/run-connector.sh ghcr.io/{org}/{repo}:1.0.0 [port]
+```
 
 ## Package versions
 
