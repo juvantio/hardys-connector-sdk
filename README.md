@@ -2,25 +2,23 @@
 
 Normative gRPC contract definitions for all Hardys connector classes.
 
-This repository is the single source of truth for the Hardys Connector Framework (HCF). All OOTB connectors and third-party connectors implement the contracts defined here.
-
 ## Repository structure
 
 ```
 protos/
   base/
-    base.proto               ← BaseConnectorService — mandatory for ALL classes (v1)
+    base.proto               <- BaseConnectorService — mandatory ALL classes (v1)
   lecture/
-    connector.proto          ← Lecture class ConnectorService (v2)
-content/                     ← future
-identity/                    ← future
-assessment/                  ← future
+    connector.proto          <- Lecture class ConnectorService (v2)
+content/                     <- future
+identity/                    <- future
+assessment/                  <- future
 docs/
-  getting-started.md         ← Build your first connector
-  connector-classes.md       ← Class taxonomy and naming
-  event-driven-pattern.md    ← StreamEvents lifecycle events + SendControl
-  management-service.md      ← ConnectorManagementService pattern
-  governance.md              ← Versioning, changelog, certification
+  getting-started.md
+  connector-classes.md
+  event-driven-pattern.md    <- StreamEvents + SendControl pattern
+  management-service.md      <- ConnectorManagementService pattern
+  governance.md              <- Versioning, changelog, certification
 README.md
 CLAUDE.md
 ```
@@ -28,7 +26,7 @@ CLAUDE.md
 ## Quick start
 
 1. Read `docs/getting-started.md`
-2. Copy `protos/base/base.proto` and `protos/lecture/connector.proto` into your connector repo
+2. Copy `protos/base/base.proto` and `protos/lecture/connector.proto`
 3. Generate stubs for your language
 4. Implement `BaseConnectorService` + `ConnectorService` (lecture)
 5. Emit lifecycle events on `StreamEvents` — see `docs/event-driven-pattern.md`
@@ -37,18 +35,20 @@ CLAUDE.md
 
 ### Fully event-driven — no callback servers
 
-All connector→Core signals travel as typed events on `StreamEvents`. No second gRPC server to deploy.
+- **Core -> Connector:** method calls (`Register`, `Connect`, `SendControl`, etc.)
+- **Connector -> Core:** typed events on `StreamEvents`
 
-- **Core → Connector:** method calls (`Register`, `Connect`, `SendControl`, etc.)
-- **Connector → Core:** typed events on `StreamEvents` (platform events + lifecycle control events)
+### MediaFrame — universal media frame
 
-### Three gRPC services per connector
+Both `StreamAudio` and `StreamAudioVideo` return `stream MediaFrame`. The `MediaFrameType` field declares the content:
+- `MEDIA_FRAME_AUDIO` — PCM 16-bit 16kHz mono
+- `MEDIA_FRAME_AUDIO_VIDEO` — audio+video multiplexed by the connector
 
-| Service | Mandatory | Proto |
-|---|---|---|
-| `BaseConnectorService` | Yes — all classes | `protos/base/base.proto` |
-| `ConnectorService` (lecture) | Yes — lecture class | `protos/lecture/connector.proto` |
-| `ConnectorManagementService` | No — optional | `protos/lecture/connector.proto` |
+There is no separate `AudioFrame` or `VideoFrame`.
+
+### No locale in connectors
+
+Locale is a Core concern. Connectors pass raw data and never generate user-facing text.
 
 ## Official connectors
 
@@ -68,9 +68,3 @@ All connector→Core signals travel as typed events on `StreamEvents`. No second
 | `hardys.connector.lecture` | v2 | `protos/lecture/connector.proto` |
 
 See `docs/governance.md` for the full changelog.
-
-## Related repositories
-
-- `juvantio/hardys-connector-lecture-collaborate-guest` — Pilot connector (in progress)
-- `juvantio/hardys-connector-sdk-lecture` — Reference implementation
-- `juvantio/hardys-pm` — Project management

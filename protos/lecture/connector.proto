@@ -6,28 +6,49 @@ package hardys.connector.lecture.v2;
 // Version: lecture.v2
 // =============================================================================
 //
-// This file defines the lecture-class specific gRPC contract.
 // Every lecture connector MUST also implement BaseConnectorService
 // from protos/base/base.proto.
 //
 // Architecture: fully event-driven. No callback servers.
-// - Connector → Core signals: typed events on StreamEvents
-// - Core → Connector commands: SendControl
+// - Connector -> Core signals: typed events on StreamEvents
+// - Core -> Connector commands: SendControl
 //
 // Reference: LMS Architecture v0.6 + HCF v1.2 (Apr 2026)
 
 // -----------------------------------------------------------------------------
-// Capabilities (lecture-class specific)
+// Lecture-class capability strings (declared in HealthCheckResponse.caps)
 // -----------------------------------------------------------------------------
-
-// Declared in HealthCheckResponse.caps as repeated strings.
-// Known capability strings for the lecture class:
+//
 //   "audio"              — StreamAudio supported
 //   "audio_video"        — StreamAudioVideo supported
 //   "chat_read"          — StreamChat supported
 //   "chat_write"         — SendChat supported
 //   "native_diarization" — platform provides speaker_id natively
 //   "native_transcript"  — platform provides transcript natively (Teams, Zoom)
+//                          connector implements StreamTranscript
+
+// -----------------------------------------------------------------------------
+// Connector instance configuration (lecture class)
+// -----------------------------------------------------------------------------
+
+// ConnectorConfig is sent by Hardys Core to the connector in RegisterResponse.
+// Instance-level: applies for the full lifetime of the container.
+// NOT lecture config (that goes in ConnectRequest).
+//
+// Note: locale is intentionally absent. Locale is a Core concern —
+// Core manages all output language logic and never delegates it to connectors.
+message ConnectorConfig {
+  string instance_url               = 1;  // platform base URL
+  map<string, string> credentials   = 2;  // platform secrets — NEVER logged
+  map<string, string> params        = 3;  // arbitrary instance-level params
+  uint32 inactivity_timeout_seconds = 4;  // emit timeout event after N seconds — default: 600
+  string log_level                  = 5;  // "DEBUG", "INFO", "WARNING" — default: "INFO"
+}
+
+// Override RegisterResponse from base.proto to include ConnectorConfig.
+message RegisterResponse {
+  ConnectorConfig config = 1;  // instance config FROM Core
+}
 
 // -----------------------------------------------------------------------------
 // Lecture reference, connection, and instructor
@@ -56,7 +77,7 @@ message LectureDetails {
 }
 
 // Instructor identity — passed by Core so the connector can identify
-// the instructor in the platform roster and populate is_instructor in AudioFrame.
+// the instructor in the platform roster and populate is_instructor.
 // The connector does NOT determine who the instructor is independently.
 message InstructorInfo {
   string instructor_id = 1;  // platform user ID, if known
@@ -93,38 +114,36 @@ enum SpeakerRole {
 }
 
 // -----------------------------------------------------------------------------
-// Inbound stream messages
+// MediaFrame — universal media frame for both StreamAudio and StreamAudioVideo
 // -----------------------------------------------------------------------------
+//
+// AudioFrame and VideoFrame do not exist as separate types.
+// MediaFrame is the single frame type returned by both stream methods.
+//
+// When returned by StreamAudio:      type=AUDIO,       data=PCM 16-bit 16kHz mono
+// When returned by StreamAudioVideo: type=AUDIO_VIDEO, data=audio+video multiplexed
+//
+// When the platform provides audio and video as separate streams (e.g. Teams),
+// the connector is responsible for assembling them into a single multiplexed
+// data blob before yielding the frame. Core never receives two separate frames
+// to recombine — the connector handles all synchronization.
 
-// Raw PCM audio — connectors NEVER transcribe. All AI inference in Hardys Core.
-// is_instructor is populated by matching the speaker against InstructorInfo
-// from ConnectRequest. This is format normalization, not inference.
-message AudioFrame {
-  bytes       data          = 1;  // PCM 16-bit 16kHz mono
-  uint64      timestamp     = 2;  // epoch ms
-  string      speaker_id   = 3;  // optional: native platform diarization
-  string      speaker_name = 4;  // optional: display name from platform
-  float       confidence   = 5;  // optional: diarization confidence 0.0–1.0
-  bool        is_speaking  = 6;  // optional: voice activity flag
-  AudioSource source       = 7;
-  SpeakerRole speaker_role = 8;  // PRESENTER or PARTICIPANT
-  bool        is_instructor = 9; // true if speaker matches InstructorInfo
+enum MediaFrameType {
+  MEDIA_FRAME_AUDIO       = 0;  // data contains PCM 16-bit 16kHz mono audio only
+  MEDIA_FRAME_AUDIO_VIDEO = 1;  // data contains audio+video multiplexed
 }
 
-// Raw video frames — connectors NEVER analyze. All AI inference in Hardys Core.
-message VideoFrame {
-  bytes  data       = 1;  // raw frame bytes
-  uint64 timestamp  = 2;  // epoch ms
-  string format     = 3;  // "h264", "vp8", "vp9"
-  string speaker_id = 4;  // optional: which participant
-}
-
-// Combined audio+video — for connectors supporting both.
-// Use StreamAudioVideo (not StreamAudio + StreamVideo) for synchronized delivery.
 message MediaFrame {
-  AudioFrame audio     = 1;  // always populated
-  VideoFrame video     = 2;  // always populated
-  uint64     timestamp = 3;  // common timestamp for A/V sync
+  bytes          data          = 1;  // PCM audio, or audio+video multiplexed
+  uint64         timestamp     = 2;  // epoch ms
+  MediaFrameType type          = 3;  // AUDIO or AUDIO_VIDEO
+  string         speaker_id   = 4;  // optional: native platform diarization
+  string         speaker_name = 5;  // optional: display name from platform
+  float          confidence   = 6;  // optional: diarization confidence 0.0-1.0
+  bool           is_speaking  = 7;  // optional: voice activity flag
+  AudioSource    source       = 8;
+  SpeakerRole    speaker_role = 9;   // PRESENTER or PARTICIPANT
+  bool           is_instructor = 10; // true if speaker matches InstructorInfo
 }
 
 // Inbound chat — connector strips HTML. Hardys Core receives plain text.
@@ -137,14 +156,39 @@ message ChatMessage {
 }
 
 // -----------------------------------------------------------------------------
-// LectureEvent stream — all 24 event types
+// TranscriptChunk — for connectors with native transcript support
+// -----------------------------------------------------------------------------
+//
+// Used by StreamTranscript. Only connectors declaring "native_transcript"
+// in capabilities implement this method.
+//
+// The platform has already performed STT and language detection before
+// the chunk reaches us — spoken_language is intentionally absent.
+// The connector does NOT perform transcription — that would violate the
+// raw-streams-only principle. It simply normalizes the platform transcript
+// format into TranscriptChunk.
+
+message TranscriptChunk {
+  string      text          = 1;  // transcribed text
+  string      speaker_id   = 2;  // optional: native platform diarization
+  string      speaker_name = 3;  // optional: display name from platform
+  SpeakerRole speaker_role = 4;
+  bool        is_instructor = 5; // true if speaker matches InstructorInfo
+  uint64      start_ms      = 6;  // epoch ms — start of this chunk
+  uint64      end_ms        = 7;  // epoch ms — end of this chunk
+  bool        is_final      = 8;  // false=partial result, true=final result
+  float       confidence    = 9;  // optional: transcript confidence 0.0-1.0
+}
+
+// -----------------------------------------------------------------------------
+// LectureEvent stream — all 22 event types
 // -----------------------------------------------------------------------------
 //
 // StreamEvents carries TWO categories of events:
-//   1. Platform events (1–21): what happens in the lecture
-//   2. Lifecycle control events (22–24): connector state signals to Core
+//   1. Platform events (1-19): what happens in the lecture
+//   2. Lifecycle control events (20-22): connector state signals to Core
 //
-// No callback servers needed — one stream, one paradigm.
+// No callback servers — one stream, one paradigm.
 
 // Platform events
 message LectureStartedEvent          { LectureDetails details = 1; }
@@ -177,7 +221,6 @@ message BreakoutRoomClosedEvent    { uint64 timestamp = 1; }
 message ChatMessageReceivedEvent   { ChatMessage message = 1; }
 
 // Lifecycle control events — connector signals to Core via StreamEvents.
-// No callback servers — one stream, one paradigm.
 
 // Emitted as the FIRST instruction inside Connect().
 // Core allocates resources and prepares the ingestion pipeline
@@ -232,11 +275,9 @@ message LectureEvent {
 }
 
 // -----------------------------------------------------------------------------
-// Outbound — Core → Platform
+// Outbound — Core -> Platform
 // -----------------------------------------------------------------------------
 
-// SendChat: Core sends a message into session chat via the connector.
-// Connector handles platform-specific formatting (HTML for jinx, Bot Activity for Teams).
 message ChatOutMessage  { string text = 1; }
 message ChatOutResponse { bool success = 1; string error = 2; }
 
@@ -255,7 +296,6 @@ message ControlMessage {
 }
 message ControlResponse { bool acknowledged = 1; string error = 2; }
 
-// Testing
 message TestStreamRequest {
   uint32 duration_seconds = 1;
   bool   mock             = 2;
@@ -267,78 +307,45 @@ message TestStreamRequest {
 
 enum LectureErrorType {
   ERROR_UNKNOWN                       =  0;
-  // Stream
   ERROR_STREAM_INTERRUPTED            =  1;
   ERROR_AUDIO_QUALITY_DEGRADED        =  2;
   ERROR_VIDEO_QUALITY_DEGRADED        =  3;
   ERROR_STREAM_DESYNC                 =  4;
-  // Participation
-  ERROR_LECTURE_NOT_STARTED           =  5;  // retryable — retry_after_ms populated if known
+  ERROR_LECTURE_NOT_STARTED           =  5;
   ERROR_LECTURE_ALREADY_ENDED         =  6;
   ERROR_KICKED_FROM_LECTURE           =  7;
   ERROR_LECTURE_CAPACITY_REACHED      =  8;
   ERROR_PERMISSION_DENIED             =  9;
-  // Authentication
-  ERROR_AUTH_EXPIRED                  = 10;  // retryable
+  ERROR_AUTH_EXPIRED                  = 10;
   ERROR_AUTH_INVALID                  = 11;
   ERROR_AUTH_INSUFFICIENT_PERMISSIONS = 12;
-  ERROR_TOKEN_EXPIRED_DURING_LECTURE  = 13;  // retryable if connector can renew
+  ERROR_TOKEN_EXPIRED_DURING_LECTURE  = 13;
   ERROR_INVALID_SESSION               = 14;
-  // Platform
-  ERROR_PLATFORM_DISCONNECT           = 15;  // retryable
-  ERROR_PLATFORM_UNAVAILABLE          = 16;  // retryable
-  ERROR_PLATFORM_VERSION_INCOMPATIBLE = 17;  // fatal — requires connector update
-  ERROR_RATE_LIMITED                  = 18;  // retryable — retry_after_ms populated
-  // Network
-  ERROR_NETWORK_TEMPORARY             = 19;  // retryable
-  // Chat
+  ERROR_PLATFORM_DISCONNECT           = 15;
+  ERROR_PLATFORM_UNAVAILABLE          = 16;
+  ERROR_PLATFORM_VERSION_INCOMPATIBLE = 17;
+  ERROR_RATE_LIMITED                  = 18;
+  ERROR_NETWORK_TEMPORARY             = 19;
   ERROR_CHAT_DISABLED                 = 20;
   ERROR_CHAT_MESSAGE_REJECTED         = 21;
-  // Connector
-  ERROR_CONNECTOR_OVERLOADED          = 22;  // retryable — Core may reroute
-  ERROR_CONNECTOR_SHUTTING_DOWN       = 23;  // retryable — Core may reroute
-  // Capability
+  ERROR_CONNECTOR_OVERLOADED          = 22;
+  ERROR_CONNECTOR_SHUTTING_DOWN       = 23;
   ERROR_CAPABILITY_UNAVAILABLE        = 24;
 }
 
 enum LectureErrorSeverity {
-  SEVERITY_INFO    = 0;  // degradation, chat disabled — no urgent action
-  SEVERITY_WARNING = 1;  // stream interrupted, rate limited — Core monitors
-  SEVERITY_ERROR   = 2;  // auth expired, kicked — Core must intervene
-  SEVERITY_FATAL   = 3;  // platform incompatible, invalid session — non-recoverable
+  SEVERITY_INFO    = 0;
+  SEVERITY_WARNING = 1;
+  SEVERITY_ERROR   = 2;
+  SEVERITY_FATAL   = 3;
 }
 
-// Typed context per error category — avoids stringly-typed error details.
-message StreamErrorDetail {
-  string stream_type = 1;  // "audio" | "video" | "chat"
-  float  packet_loss = 2;
-  uint32 jitter_ms   = 3;
-  uint32 desync_ms   = 4;  // only for StreamAudioVideo
-}
-message AuthErrorDetail {
-  string token_id    = 1;
-  uint64 expired_at  = 2;  // epoch ms
-}
-message PlatformErrorDetail {
-  string platform_code = 1;  // native platform error code
-  string platform_msg  = 2;  // native platform error message
-  string api_version   = 3;  // platform API version at time of error
-}
-message ParticipationErrorDetail {
-  string lecture_id          = 1;
-  uint64 scheduled_start_ms  = 2;  // for ERROR_LECTURE_NOT_STARTED
-  uint64 ended_at_ms         = 3;  // for ERROR_LECTURE_ALREADY_ENDED
-  string kicked_by           = 4;  // for ERROR_KICKED_FROM_LECTURE
-  uint32 capacity            = 5;  // for ERROR_LECTURE_CAPACITY_REACHED
-}
-message ChatErrorDetail {
-  string message_id       = 1;
-  string rejection_reason = 2;
-}
-message ConnectorErrorDetail {
-  uint32 active_lectures = 1;  // for ERROR_CONNECTOR_OVERLOADED
-  uint64 shutdown_at_ms  = 2;  // for ERROR_CONNECTOR_SHUTTING_DOWN
-}
+message StreamErrorDetail        { string stream_type = 1; float packet_loss = 2; uint32 jitter_ms = 3; uint32 desync_ms = 4; }
+message AuthErrorDetail          { string token_id = 1; uint64 expired_at = 2; }
+message PlatformErrorDetail      { string platform_code = 1; string platform_msg = 2; string api_version = 3; }
+message ParticipationErrorDetail { string lecture_id = 1; uint64 scheduled_start_ms = 2; uint64 ended_at_ms = 3; string kicked_by = 4; uint32 capacity = 5; }
+message ChatErrorDetail          { string message_id = 1; string rejection_reason = 2; }
+message ConnectorErrorDetail     { uint32 active_lectures = 1; uint64 shutdown_at_ms = 2; }
 
 message LectureErrorContext {
   oneof detail {
@@ -355,10 +362,10 @@ message LectureError {
   string               error_id       = 1;  // UUID for log correlation
   LectureErrorType     type           = 2;
   LectureErrorSeverity severity       = 3;
-  string               method         = 4;  // which method generated the error
+  string               method         = 4;
   bool                 retryable      = 5;
   uint32               retry_after_ms = 6;
-  uint64               timestamp      = 7;  // epoch ms
+  uint64               timestamp      = 7;
   LectureErrorContext  context        = 8;
   string               stack_trace    = 9;  // optional — debug builds only
 }
@@ -367,42 +374,25 @@ message LectureError {
 // ConnectorManagementService — optional
 // -----------------------------------------------------------------------------
 //
-// Set management_supported=false in HealthCheck if not implementing.
-//
 // Faculty App UX:
-//   management_supported=true  → lecture list, tap to activate
-//   management_supported=false → text field for guest link / session token
-//
-// ActivateLectureRequest includes InstructorInfo so the connector can
-// match the instructor immediately when the lecture starts.
+//   management_supported=true  -> lecture list, tap to activate
+//   management_supported=false -> text field for guest link / session token
 
-message ListLecturesRequest {
-  string course_id = 1;
-  string date      = 2;  // ISO date YYYY-MM-DD — defaults to today
-}
-
-message LectureInfo {
-  string lecture_id    = 1;
-  string lecture_name  = 2;
-  string start_time    = 3;  // ISO 8601
-  string end_time      = 4;  // ISO 8601
-  bool   is_active     = 5;
-  bool   audio_enabled = 6;
-}
-
+message ListLecturesRequest   { string course_id = 1; string date = 2; }
+message LectureInfo           { string lecture_id = 1; string lecture_name = 2; string start_time = 3; string end_time = 4; bool is_active = 5; bool audio_enabled = 6; }
 message ListLecturesResponse  { repeated LectureInfo lectures = 1; }
 message GetLectureRequest     { string lecture_id = 1; }
 
 message ActivateLectureRequest {
   string         lecture_id  = 1;
   LectureConfig  config      = 2;
-  InstructorInfo instructor  = 3;  // Core passes who the instructor is
+  InstructorInfo instructor  = 3;
 }
 
 message ActivateLectureResponse {
   bool            success = 1;
   string          error   = 2;
-  ConnectResponse details = 3;  // populated on success
+  ConnectResponse details = 3;
 }
 
 service ConnectorManagementService {
@@ -419,18 +409,30 @@ service ConnectorService {
   // Lecture lifecycle
   rpc Connect     (ConnectRequest)  returns (ConnectResponse);
 
-  // Inbound streams (Core opens, Connector streams)
-  // Use StreamAudio for audio-only connectors (e.g. Collaborate).
-  // Use StreamAudioVideo for connectors supporting both (e.g. Teams, Meet, Zoom).
-  rpc StreamAudio      (ConnectRequest) returns (stream AudioFrame);
+  // Inbound streams — Core opens, Connector streams
+  //
+  // Both methods return stream MediaFrame.
+  // StreamAudio:      MediaFrame.type = AUDIO,       data = PCM 16-bit 16kHz mono
+  // StreamAudioVideo: MediaFrame.type = AUDIO_VIDEO, data = audio+video multiplexed
+  //
+  // Implement StreamAudio for audio-only platforms (e.g. Collaborate).
+  // Implement StreamAudioVideo for platforms with video (e.g. Teams, Meet, Zoom).
+  // Declare supported methods via capability strings in HealthCheck.
+  rpc StreamAudio      (ConnectRequest) returns (stream MediaFrame);
   rpc StreamAudioVideo (ConnectRequest) returns (stream MediaFrame);
   rpc StreamChat       (ConnectRequest) returns (stream ChatMessage);
   rpc StreamEvents     (ConnectRequest) returns (stream LectureEvent);
 
-  // Outbound — Core → Platform
+  // StreamTranscript — optional, only for connectors with native transcript.
+  // Declare capability: "native_transcript".
+  // The platform has already performed STT — the connector normalizes the
+  // platform transcript format into TranscriptChunk. No STT happens here.
+  rpc StreamTranscript (ConnectRequest) returns (stream TranscriptChunk);
+
+  // Outbound — Core -> Platform
   rpc SendChat    (ChatOutMessage)  returns (ChatOutResponse);
   rpc SendControl (ControlMessage)  returns (ControlResponse);
 
   // Testing
-  rpc TestStream  (TestStreamRequest) returns (stream AudioFrame);
+  rpc TestStream  (TestStreamRequest) returns (stream MediaFrame);
 }
