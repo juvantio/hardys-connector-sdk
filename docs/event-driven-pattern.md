@@ -38,20 +38,26 @@ Events that reflect what is happening in the lecture:
 | `ChatMessageReceivedEvent` | Chat message received (complement to StreamChat) |
 
 ### Lifecycle control events (field numbers 21–23)
-Events that signal connector state to Core. These replace the old `HardysCoreCallbackService`.
+Events that signal connector lifecycle state to Core. No callback servers needed.
 
-| Event | When emitted | Core response |
+| Event | When emitted | Semantics |
 |---|---|---|
-| `LectureStartedCallbackEvent` | Connector has joined the lecture and is ready to stream | Core opens audio/video/chat streams |
-| `LectureClosedCallbackEvent` | Connector is about to close all streams | Core closes pipeline |
-| `LectureErrorEvent` | An error has occurred (typed `LectureError`) | Core calls `SendControl(abort)` if non-recoverable |
+| `LectureStartEvent` | **First instruction inside `Connect()`** | Core allocates resources and prepares the ingestion pipeline before the connector completes the platform join |
+| `LectureCloseEvent` | **First instruction inside `Disconnect()`** | Core deallocates resources and closes the ingestion pipeline before the connector leaves the platform |
+| `LectureErrorEvent` | When an error occurs during the lecture | Core may respond with `SendControl(abort)` if non-recoverable |
+
+**Key distinction:**
+- `LectureStartEvent` / `LectureCloseEvent` are about the **connector lifecycle** — they signal the beginning and end of the connector's participation, not what happens on the platform.
+- `LectureStartedEvent` / `LectureClosedEvent` (platform events, fields 1–2) are about the **platform state** — the lecture starting or ending on the platform side.
 
 ## Lifecycle sequence
 
 ```
 Core       → Connect(LectureRef, LectureConfig, InstructorInfo)
-               ↳ connector joins the lecture
-               ↳ connector emits LectureStartedCallbackEvent on StreamEvents
+               ↳ connector emits LectureStartEvent     ← FIRST instruction
+               ↳ connector joins the lecture on the platform
+               ↳ connector matches instructor via InstructorInfo
+               ↳ returns ConnectResponse + LectureDetails
 
                StreamAudio / StreamAudioVideo  ↘
                StreamChat                       ├  in parallel
@@ -65,13 +71,14 @@ Core       → Connect(LectureRef, LectureConfig, InstructorInfo)
                If non-recoverable: Core calls SendControl(abort)
 
 Core       → Disconnect()
-               ↳ connector emits LectureClosedCallbackEvent on StreamEvents
-               ↳ connector closes all streams
+               ↳ connector emits LectureCloseEvent     ← FIRST instruction
+               ↳ connector leaves the platform
+               ↳ closes all streams
 ```
 
 ## SendControl — Core → Connector commands
 
-`SendControl` is the only Core→Connector command channel outside of lifecycle calls.
+`SendControl` is the Core→Connector command channel, used primarily to respond to `LectureErrorEvent`.
 
 ```proto
 message ControlMessage {
@@ -86,13 +93,12 @@ message ControlMessage {
 **Typical abort flow:**
 1. Connector emits `LectureErrorEvent` with `severity=FATAL` and `retryable=false`
 2. Core calls `SendControl(abort)`
-3. Connector stops streams, emits `LectureClosedCallbackEvent`, exits
+3. Connector emits `LectureCloseEvent`, stops streams, exits
 
 ## Adding new event types
 
 New event types are added by:
 1. Defining a new message (e.g. `MyNewEvent { ... }`)
 2. Adding a new field to `LectureEvent.oneof` (next available field number)
-3. Bumping the minor version of the package
-
-This is backward-compatible — existing connectors that do not emit the new event continue to work.
+3. Updating `docs/governance.md` changelog
+4. This is backward-compatible — minor version bump only

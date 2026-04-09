@@ -35,7 +35,9 @@ Third-party developers are free to build connectors implementing any class contr
 
 - Implement all mandatory methods of `BaseConnectorService`
 - Implement all mandatory methods of the class-specific `ConnectorService`
-- Emit correct lifecycle events on `StreamEvents` (`LectureStartedCallbackEvent`, `LectureClosedCallbackEvent`, `LectureErrorEvent`)
+- Emit `LectureStartEvent` as the first instruction inside `Connect()`
+- Emit `LectureCloseEvent` as the first instruction inside `Disconnect()`
+- Emit `LectureErrorEvent` on `StreamEvents` when errors occur
 - Pass the SDK test harness in both real and mock mode
 - Expose all mandatory CLI entry points (`health`, `run`, `run --mock`)
 - Provide `auth-flow.md` and `session-flow.md` documentation
@@ -49,7 +51,10 @@ Certification is managed by Juvant. Uncertified connectors can be used but are n
 - **BREAKING:** `hardys.connector.lecture.v1` → `hardys.connector.lecture.v2`
 - `StreamVideo` removed → `StreamAudio` (audio-only) + `StreamAudioVideo` (`MediaFrame`, audio+video)
 - `SessionEvents` → `StreamEvents` with full typed `LectureEvent` oneof (23 event types)
-- Three lifecycle control events: `LectureStartedCallbackEvent`, `LectureClosedCallbackEvent`, `LectureErrorEvent`
+- Three lifecycle control events on StreamEvents:
+  - `LectureStartEvent` — emitted as **first instruction inside `Connect()`**; Core allocates resources
+  - `LectureCloseEvent` — emitted as **first instruction inside `Disconnect()`**; Core deallocates resources
+  - `LectureErrorEvent` — typed error event; Core may respond with `SendControl(abort)`
 - `SendControl` added (`AbortCommand`, `PauseCommand`, `ResumeCommand`)
 - `session` → `lecture` rename throughout (`SessionRef`→`LectureRef`, `SessionConfig`→`LectureConfig`, etc.)
 - `InstructorInfo` struct in `ConnectRequest` (replaces `instructor_name` string)

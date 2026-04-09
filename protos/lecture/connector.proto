@@ -178,25 +178,26 @@ message BreakoutRoomClosedEvent      { uint64 timestamp = 1; }
 message ChatMessageReceivedEvent     { ChatMessage message = 1; }
 
 // Lifecycle control events — connector signals to Core via StreamEvents.
-// These replace the old HardysCoreCallbackService (removed in v2).
+// No callback servers — one stream, one paradigm.
 
-// Emitted when the connector has successfully joined the lecture
-// and is ready to stream. Replaces OnLectureStart callback.
-message LectureStartedCallbackEvent {
+// Emitted as the FIRST instruction inside Connect().
+// Core allocates resources and prepares the ingestion pipeline
+// before the connector completes the platform join.
+message LectureStartEvent {
   LectureRef     lecture = 1;
   LectureDetails details = 2;
 }
 
-// Emitted before the connector closes all streams — graceful or forced.
-// Replaces OnLectureClose callback.
-message LectureClosedCallbackEvent {
+// Emitted as the FIRST instruction inside Disconnect().
+// Core deallocates resources and closes the ingestion pipeline
+// before the connector leaves the platform.
+message LectureCloseEvent {
   LectureRef lecture = 1;
   string     reason  = 2;
 }
 
-// Emitted when an error occurs. Core may respond with SendControl(abort)
-// if the error is non-recoverable.
-// Replaces OnLectureError callback.
+// Emitted when an error occurs during the lecture.
+// Core may respond with SendControl(abort) if the error is non-recoverable.
 message LectureErrorEvent {
   LectureError error = 1;
 }
@@ -225,8 +226,8 @@ message LectureEvent {
     BreakoutRoomClosedEvent      breakout_closed      = 19;
     ChatMessageReceivedEvent     chat_received        = 20;
     // Lifecycle control events
-    LectureStartedCallbackEvent  lecture_started_cb   = 21;
-    LectureClosedCallbackEvent   lecture_closed_cb    = 22;
+    LectureStartEvent            lecture_start        = 21;  // first instruction in Connect()
+    LectureCloseEvent            lecture_close        = 22;  // first instruction in Disconnect()
     LectureErrorEvent            lecture_error        = 23;
   }
   uint64 timestamp = 24;
