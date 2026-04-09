@@ -20,7 +20,7 @@ package hardys.connector.base.v1;
 // -----------------------------------------------------------------------------
 
 message ConnectorCapabilities {
-  repeated string capabilities = 1;  // class-specific capability strings
+  repeated string capabilities = 1; // class-specific capability strings
 }
 
 // -----------------------------------------------------------------------------
@@ -29,9 +29,9 @@ message ConnectorCapabilities {
 
 // Connector -> Core: identify yourself at boot.
 message RegisterRequest {
-  string connector_class = 1;  // e.g. "lecture"
-  string connector_id    = 2;  // e.g. "lecture.collaborate_guest"
-  string version         = 3;  // semantic version
+  string connector_class = 1; // e.g. "lecture"
+  string connector_id    = 2; // e.g. "lecture.collaborate_guest"
+  string version         = 3; // semantic version
 }
 
 // Core -> Connector: here is your instance configuration.
@@ -61,7 +61,7 @@ message HealthCheckResponse {
   string                connector_class      = 3;
   string                connector_id         = 4;
   ConnectorCapabilities caps                 = 5;
-  bool                  management_supported = 6;  // true -> Faculty App shows lecture list
+  bool                  management_supported = 6; // true -> Faculty App shows lecture list
   map<string, string>   diagnostics          = 7;
 }
 
@@ -75,12 +75,12 @@ message HealthCheckResponse {
 message ConfigSchemaRequest {}
 
 message ConfigSchemaField {
-  string name        = 1;  // field key in ConnectorConfig.params or credentials
-  string type        = 2;  // "string" | "secret" | "url" | "integer" | "boolean"
-  string label       = 3;  // human-readable label for admin UI
-  string description = 4;  // help text shown in admin UI
+  string name        = 1; // field key in ConnectorConfig.params or credentials
+  string type        = 2; // "string" | "secret" | "url" | "integer" | "boolean"
+  string label       = 3; // human-readable label for admin UI
+  string description = 4; // help text shown in admin UI
   bool   required    = 5;
-  string default_val = 6;  // optional default value
+  string default_val = 6; // optional default value
 }
 
 message ConfigSchemaResponse {
@@ -91,9 +91,14 @@ message ConfigSchemaResponse {
 // BaseConnectorService — mandatory for ALL connector classes
 // -----------------------------------------------------------------------------
 
+// BaseConnectorService defines the mandatory lifecycle, observability, and
+// configuration schema methods that every connector must implement,
+// regardless of class. This is the pure service contract with no
+// platform or class-specific fields.
 service BaseConnectorService {
   // Lifecycle
   rpc Register        (RegisterRequest)     returns (RegisterResponse);
+  // Gracefully disconnect the connector and release resources.
   rpc Disconnect      (DisconnectRequest)   returns (DisconnectResponse);
 
   // Observability
