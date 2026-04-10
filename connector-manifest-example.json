@@ -6,6 +6,7 @@
   "display_name": "Example Lecture Connector",
   "description": "Reference example of a connector-manifest.json for the lecture class. Copy and adapt for your platform.",
   "capabilities": ["audio", "chat_read", "chat_write"],
+  "lecture_management_supported": false,
   "config_schema": {
     "readonly_fields": [
       {
@@ -17,6 +18,11 @@
         "name": "connector_id",
         "value": "lecture.example",
         "label": "Connector ID"
+      },
+      {
+        "name": "lecture_management_supported",
+        "value": "false",
+        "label": "Lecture Management Supported"
       }
     ],
     "instance_fields": [

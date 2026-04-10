@@ -3,7 +3,7 @@
   "title": "Hardys Connector Manifest Schema",
   "description": "Schema for connector-manifest.json — published as OCI annotation on the connector image. Read by Hardys Core without starting the container.",
   "type": "object",
-  "required": ["manifest_version", "connector_id", "connector_class", "version", "display_name", "capabilities", "config_schema"],
+  "required": ["manifest_version", "connector_id", "connector_class", "version", "display_name", "capabilities", "lecture_management_supported", "config_schema"],
   "properties": {
     "manifest_version": {
       "type": "string",
@@ -48,6 +48,10 @@
           "native_transcript"
         ]
       }
+    },
+    "lecture_management_supported": {
+      "type": "boolean",
+      "description": "Declares whether this connector implements ConnectorLectureManagementService. Static — set at build time, never changed at runtime. true = connector has institutional API access (e.g. collaborate-api, teams). false = connector is link-only or mock (e.g. collaborate-link, example)."
     },
     "config_schema": {
       "type": "object",
