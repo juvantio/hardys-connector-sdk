@@ -9,10 +9,8 @@ This repository is the single source of truth for the Hardys Connector Framework
 ```
 protos/
   lecture/
-    connector.proto              ← Lecture class ConnectorService (v2)
-  content/                       ← future
-  identity/                      ← future
-  assessment/                    ← future
+    connector.proto              ← Lecture class ConnectorService v2
+                                   + ConnectorLectureManagementService
 connector-manifest-schema.json   ← JSON schema for connector-manifest.json
 connector-manifest-example.json  ← Complete example manifest
 scripts/
@@ -21,7 +19,7 @@ docs/
   getting-started.md             ← Build your first connector
   connector-classes.md           ← Class taxonomy and naming
   event-driven-pattern.md        ← StreamEvents + SendControl pattern
-  management-service.md          ← Optional management service pattern
+  management-service.md          ← ConnectorLectureManagementService pattern
   governance.md                  ← Versioning, changelog, certification
 README.md
 CLAUDE.md
@@ -33,11 +31,22 @@ CLAUDE.md
 2. Copy `protos/lecture/connector.proto` into your connector repo
 3. Generate stubs for your language
 4. Implement `ConnectorService`
-5. Publish `connector-manifest.json` as OCI annotation on your image
-6. Copy `scripts/docker-publish.yml` to `.github/workflows/` in your repo
-7. See `docs/event-driven-pattern.md` for lifecycle event pattern
+5. If your connector has institutional API access, also implement `ConnectorLectureManagementService`
+6. Set `lecture_management_supported` in `connector-manifest.json`
+7. Publish `connector-manifest.json` as OCI annotation on your image
+8. Copy `scripts/docker-publish.yml` to `.github/workflows/` in your repo
+9. See `docs/event-driven-pattern.md` for lifecycle event pattern
 
 ## Architecture
+
+### Two services
+
+| Service | Who implements | What it does |
+|---|---|---|
+| `ConnectorService` | All lecture connectors | Audio, chat, events, transcript, attendance, metrics |
+| `ConnectorLectureManagementService` | Connectors with institutional API | Discovery, scheduling, enrollment |
+
+`lecture_management_supported` in `connector-manifest.json` declares which service the connector implements. This is static — set at build time, never changed at runtime.
 
 ### Deployment model
 
@@ -55,7 +64,7 @@ CLAUDE.md
 
 ### Fully event-driven — no callback servers
 
-- **Core → Connector:** method calls (`Connect`, `SendControl`, etc.)
+- **Core → Connector:** method calls (`Connect`, `SendControl`, poll methods, etc.)
 - **Connector → Core:** typed events on `StreamEvents`
 
 ### MediaFrame — universal media frame
@@ -65,6 +74,16 @@ Both `StreamAudio` and `StreamAudioVideo` return `stream MediaFrame`. `MediaFram
 - `MEDIA_FRAME_AUDIO_VIDEO` — audio+video multiplexed by the connector
 
 No separate `AudioFrame` or `VideoFrame`.
+
+### In-session poll methods
+
+Three synchronous methods available to all lecture connectors:
+
+| Method | What it returns | Notes |
+|---|---|---|
+| `GetLectureInfo` | Lecture metadata (name, times, expected attendees) | Platform-specific source |
+| `GetAttendance` | Snapshot of who is in the lecture | `presence_reliable` flag indicates if `is_present` can be trusted |
+| `GetMetrics` | Aggregate session metrics (key/value) | Return empty snapshot if not supported — do not error |
 
 ### Config validation — mandatory
 
@@ -80,8 +99,6 @@ git add .github/workflows/docker-publish.yml
 git commit -m "ci: add Docker publish workflow"
 git push
 ```
-
-**No secrets required** — the workflow uses the built-in `GITHUB_TOKEN`.
 
 **Publish a release:**
 ```bash
