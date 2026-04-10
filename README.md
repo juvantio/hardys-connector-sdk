@@ -110,5 +110,5 @@ See `docs/governance.md` for the full changelog.
 
 ## Related repositories
 
-- `juvantio/hardys-connector-sdk-lecture-example` — Reference implementation (lecture class)
+- `juvantio/hardys-connector-lecture-example` — Reference implementation (lecture class)
 - `juvantio/hardys-pm` — Project management
