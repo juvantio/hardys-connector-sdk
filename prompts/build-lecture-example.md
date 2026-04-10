@@ -1,8 +1,8 @@
-# Claude Code Prompt — Build `hardys-connector-sdk-lecture-example`
+# Claude Code Prompt — Build `hardys-connector-lecture-example`
 
 ## Context
 
-You are working in the repository `juvantio/hardys-connector-sdk-lecture-example`.
+You are working in the repository `juvantio/hardys-connector-lecture-example`.
 
 This repository is the **reference implementation** of a Hardys lecture connector. It implements the full `ConnectorService` contract defined in `juvantio/hardys-connector-sdk` using **mock/synthetic data only** — no real lecture platform is involved. Its purpose is to:
 
@@ -22,7 +22,7 @@ Before writing any code, read the following files from `juvantio/hardys-connecto
 
 ---
 
-## Repository to create: `hardys-connector-sdk-lecture-example`
+## Repository to create: `hardys-connector-lecture-example`
 
 ### connector_id
 `lecture.example`
@@ -375,5 +375,5 @@ Include:
 - [ ] `python connector.py health` exits 0
 - [ ] `python connector.py run --mock --duration 5 --output all` runs without error
 - [ ] `docker-compose up` builds and starts without error
-- [ ] OCI annotation is present: `docker inspect hardys-connector-sdk-lecture-example_connector --format '{{index .Config.Labels "org.hardys.connector.manifest-path"}}'`
+- [ ] OCI annotation is present: `docker inspect hardys-connector-lecture-example_connector --format '{{index .Config.Labels "org.hardys.connector.manifest-path"}}'`
 - [ ] `.github/workflows/ci.yml` and `.github/workflows/docker-publish.yml` are present
