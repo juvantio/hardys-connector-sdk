@@ -12,10 +12,15 @@ package hardys.connector.lecture.v2;
 // - Zero env vars for configuration — everything arrives in ConnectRequest
 // - connector-manifest.json published as OCI annotation on the image
 //   Core reads it without starting the container (docker inspect)
-// - Single service: ConnectorService — no BaseConnectorService
+// - Two services:
+//     ConnectorService                  — mandatory, all lecture connectors
+//     ConnectorLectureManagementService — optional, connectors with institutional
+//                                         API access (collaborate-api, teams, etc.)
 // - session_id (UUID) in every request — disambiguates concurrent sessions
 // - Single/multi session policy is a Core decision — connector is indifferent
 // - Container never exits by itself — Core stops it via ACA API
+// - lecture_management_supported declared in manifest — static, never changes
+//   at runtime. Core reads it from OCI annotation before starting the container.
 //
 // LIFECYCLE
 // ---------
@@ -59,6 +64,13 @@ enum SpeakerRole {
   SPEAKER_ROLE_UNKNOWN     = 0;
   SPEAKER_ROLE_PRESENTER   = 1;  // has session control
   SPEAKER_ROLE_PARTICIPANT = 2;  // student or guest
+}
+
+enum ParticipantRole {
+  PARTICIPANT_ROLE_UNKNOWN    = 0;
+  PARTICIPANT_ROLE_STUDENT    = 1;
+  PARTICIPANT_ROLE_INSTRUCTOR = 2;
+  PARTICIPANT_ROLE_GUEST      = 3;
 }
 
 // -----------------------------------------------------------------------------
@@ -211,11 +223,12 @@ message ControlResponse { bool acknowledged = 1; string error = 2; }
 
 message HealthCheckRequest {}
 message HealthCheckResponse {
-  bool                healthy         = 1;
-  string              version         = 2;
-  string              connector_id    = 3;
-  string              connector_class = 4;
-  map<string, string> diagnostics     = 5;
+  bool                healthy                      = 1;
+  string              version                      = 2;
+  string              connector_id                 = 3;
+  string              connector_class              = 4;
+  bool                lecture_management_supported = 5;  // mirrors manifest — never set at runtime
+  map<string, string> diagnostics                  = 6;
 }
 
 // -----------------------------------------------------------------------------
@@ -242,6 +255,97 @@ message ConfigField {
 message LectureConfigSchemaRequest  {}
 message LectureConfigSchemaResponse {
   repeated ConfigField runtime_fields = 1;
+}
+
+// -----------------------------------------------------------------------------
+// LectureInfo — metadata about the current lecture
+// -----------------------------------------------------------------------------
+//
+// Returned by GetLectureInfo. Available to all lecture connectors.
+// Populated from platform-specific sources:
+//   collaborate-link: data from join flow (session metadata)
+//   collaborate-api:  getSingleClassInfo
+//   teams:            onlineMeeting object
+//
+// transcription_enabled and spoken_language are optional — populate only
+// if the platform exposes them. Core uses them to decide whether to open
+// StreamTranscript.
+
+message GetLectureInfoRequest {
+  string session_id = 1;
+}
+
+message LectureInfo {
+  string session_id          = 1;
+  string lecture_id          = 2;
+  string lecture_name        = 3;
+  uint64 scheduled_start     = 4;  // epoch ms
+  uint64 scheduled_end       = 5;  // epoch ms
+  uint32 expected_attendees  = 6;  // 0 if unknown
+  bool   transcription_enabled = 7;  // optional — platform-specific
+  string spoken_language     = 8;  // optional — BCP 47 tag e.g. "it-IT"
+  map<string, string> metadata = 9;  // platform-specific extras
+}
+
+// -----------------------------------------------------------------------------
+// AttendanceSnapshot — who is in the lecture right now
+// -----------------------------------------------------------------------------
+//
+// Returned by GetAttendance. Poll-based — Core decides polling frequency.
+// presence_reliable signals whether is_present can be trusted:
+//   true:  connector has real-time presence data (e.g. Class getAttendance)
+//   false: connector can only report the invited roster, not live presence
+//          (e.g. Teams in-session — actual presence only available post-session)
+//
+// Connector implementations:
+//   collaborate-link: UNIMPLEMENTED in Pilot — implement in collaborate-api
+//   collaborate-api:  Class getAttendance — presence_reliable = true
+//   teams:            onlineMeeting participants — presence_reliable = false
+
+message GetAttendanceRequest {
+  string session_id = 1;
+}
+
+message Participant {
+  string          participant_id = 1;  // platform-specific ID
+  string          display_name  = 2;
+  string          email         = 3;
+  ParticipantRole role          = 4;
+  bool            is_present    = 5;  // only reliable if presence_reliable = true
+  bool            is_instructor = 6;
+  uint64          join_time     = 7;  // epoch ms — 0 if not yet joined
+  uint64          leave_time    = 8;  // epoch ms — 0 if still present
+  map<string, string> metadata  = 9;  // platform-specific extras
+}
+
+message AttendanceSnapshot {
+  string             session_id        = 1;
+  uint64             timestamp         = 2;  // epoch ms — when snapshot was taken
+  bool               presence_reliable = 3;  // see comment above
+  repeated Participant participants    = 4;
+}
+
+// -----------------------------------------------------------------------------
+// MetricsSnapshot — aggregate session metrics
+// -----------------------------------------------------------------------------
+//
+// Returned by GetMetrics. Poll-based.
+// values is intentionally open — each platform puts what it has.
+// Core does not assume specific keys.
+//
+// Connector implementations:
+//   collaborate-link: UNIMPLEMENTED
+//   collaborate-api:  Class getMetrics
+//   teams:            UNIMPLEMENTED (no equivalent in-session API)
+
+message GetMetricsRequest {
+  string session_id = 1;
+}
+
+message MetricsSnapshot {
+  string              session_id = 1;
+  uint64              timestamp  = 2;  // epoch ms
+  map<string, string> values     = 3;  // platform-specific key/value pairs
 }
 
 // -----------------------------------------------------------------------------
@@ -419,7 +523,7 @@ message LectureError {
 }
 
 // -----------------------------------------------------------------------------
-// ConnectorService — single service, all methods
+// ConnectorService — mandatory, all lecture connectors
 // -----------------------------------------------------------------------------
 
 service ConnectorService {
@@ -455,7 +559,118 @@ service ConnectorService {
   rpc SendChat               (SendChatRequest)              returns (ChatOutResponse);
   rpc SendControl            (SendControlRequest)           returns (ControlResponse);
 
+  // In-session information — poll-based, Core decides frequency
+  // GetLectureInfo:  metadata about the current lecture (name, times, expected attendees)
+  // GetAttendance:   snapshot of who is in the lecture. presence_reliable = false
+  //                  means connector can only report the invited roster (e.g. Teams)
+  // GetMetrics:      aggregate session metrics. platform-specific key/value pairs.
+  //                  Return empty MetricsSnapshot if not supported — do not error.
+  rpc GetLectureInfo         (GetLectureInfoRequest)        returns (LectureInfo);
+  rpc GetAttendance          (GetAttendanceRequest)         returns (AttendanceSnapshot);
+  rpc GetMetrics             (GetMetricsRequest)            returns (MetricsSnapshot);
+
   // Testing — synthetic data, no real lecture needed
   // Must always be implemented — Core uses it to validate the connector
   rpc TestStream             (TestStreamRequest)            returns (stream MediaFrame);
+}
+
+// -----------------------------------------------------------------------------
+// ConnectorLectureManagementService — optional, institutional API connectors only
+// -----------------------------------------------------------------------------
+//
+// Implemented by connectors that have institutional API access:
+//   lecture.collaborate_api — Class API (class:read, enrollment:read, schedule:read)
+//   lecture.teams           — Microsoft Graph API (OnlineMeetings, Calendar)
+//
+// NOT implemented by:
+//   lecture.collaborate_link — guest link only, no API credentials
+//   lecture.example          — reference mock, management_supported = false
+//
+// Core determines availability via:
+//   1. connector-manifest.json: "lecture_management_supported": true/false (static)
+//   2. HealthCheckResponse.lecture_management_supported (mirrors manifest)
+//
+// lecture_management_supported is declared in the manifest at build time.
+// It is NEVER changed at runtime. A connector either has institutional API
+// access or it does not — this is a structural property of the connector type,
+// not a configuration choice.
+//
+// Core never calls ConnectorLectureManagementService on a connector where
+// lecture_management_supported = false.
+
+// ListLectures — discovery: which lectures are scheduled or active?
+// Used for Scenario B (autonomous join when a lecture starts)
+// Platform mapping:
+//   collaborate-api: getAllClassesInfo
+//   teams:           GET /me/calendar/events filtered by isOnlineMeeting=true
+
+message ListLecturesRequest {
+  string session_id       = 1;
+  uint64 after_ms         = 2;  // filter: only lectures starting after this epoch ms
+  uint64 before_ms        = 3;  // filter: only lectures starting before this epoch ms
+  bool   active_only      = 4;  // if true, return only currently active lectures
+}
+
+message LectureSummary {
+  string lecture_id      = 1;
+  string lecture_name    = 2;
+  string instructor_name = 3;
+  uint64 start_ms        = 4;  // epoch ms
+  uint64 end_ms          = 5;  // epoch ms
+  bool   is_active       = 6;  // true if currently in progress
+  string join_url        = 7;  // invite_link or joinWebUrl
+  map<string, string> metadata = 8;
+}
+
+message ListLecturesResponse {
+  repeated LectureSummary lectures = 1;
+}
+
+// GetSchedule — when does a specific lecture occur?
+// Used to determine if a lecture is currently active (Scenario B)
+// Platform mapping:
+//   collaborate-api: getClassDates
+//   teams:           derived from onlineMeeting.startDateTime / endDateTime
+
+message GetScheduleRequest {
+  string session_id  = 1;
+  string lecture_id  = 2;
+}
+
+message ScheduleEntry {
+  uint64 start_ms = 1;  // epoch ms
+  uint64 end_ms   = 2;  // epoch ms
+}
+
+message GetScheduleResponse {
+  string lecture_id             = 1;
+  repeated ScheduleEntry dates  = 2;
+}
+
+// EnsureHardysEnrolled — idempotent join preparation
+// Ensures the Hardys bot user exists on the platform and is enrolled
+// in the specified lecture. Safe to call multiple times.
+// Platform mapping:
+//   collaborate-api: PUT /users (upsert) + getEnrollments + createEnrollment if needed
+//   teams:           bot registration + meeting invite (platform-specific)
+
+message EnsureHardysEnrolledRequest {
+  string session_id  = 1;
+  string lecture_id  = 2;
+}
+
+message EnsureHardysEnrolledResponse {
+  bool   enrolled    = 1;
+  string launch_url  = 2;  // authenticated join URL for the Hardys user
+  string error       = 3;
+}
+
+service ConnectorLectureManagementService {
+  // Discovery — find lectures to join
+  rpc ListLectures          (ListLecturesRequest)          returns (ListLecturesResponse);
+  rpc GetSchedule           (GetScheduleRequest)           returns (GetScheduleResponse);
+
+  // Join preparation — ensure Hardys can enter the lecture
+  // Call before Connect() when using institutional API access
+  rpc EnsureHardysEnrolled  (EnsureHardysEnrolledRequest)  returns (EnsureHardysEnrolledResponse);
 }
