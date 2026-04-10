@@ -15,12 +15,6 @@ protos/
   assessment/                    ← future
 connector-manifest-schema.json   ← JSON schema for connector-manifest.json
 connector-manifest-example.json  ← Complete example manifest
-scripts/
-  run-connector.sh               ← Pull image, read OCI manifest, start container (macOS/Linux)
-  run-connector.bat              ← Same — Windows CMD
-  run-connector.ps1              ← Same — Windows PowerShell
-  docker-publish.yml             ← GitHub Actions workflow template — copy to your connector repo
-  README.md
 docs/
   getting-started.md             ← Build your first connector
   connector-classes.md           ← Class taxonomy and naming
@@ -38,7 +32,7 @@ CLAUDE.md
 3. Generate stubs for your language
 4. Implement `ConnectorService`
 5. Publish `connector-manifest.json` as OCI annotation on your image
-6. Copy `scripts/docker-publish.yml` to `.github/workflows/` in your repo
+6. Copy `docker-publish.yml` from `juvantio/juvant-dev-tools/hardys/scripts/` to `.github/workflows/` in your repo
 7. See `docs/event-driven-pattern.md` for lifecycle event pattern
 
 ## Architecture
@@ -76,18 +70,16 @@ Every connector MUST validate all `required=true` fields at the start of `Connec
 
 ## Docker image publishing
 
-Every connector image is published to `ghcr.io` using the GitHub Actions workflow template in `scripts/docker-publish.yml`.
+Workflow template and run scripts are in `juvantio/juvant-dev-tools/hardys/scripts/`.
 
 **Setup (one-time per connector repo):**
 ```bash
 mkdir -p .github/workflows
-cp scripts/docker-publish.yml .github/workflows/docker-publish.yml
+# Copy from juvantio/juvant-dev-tools/hardys/scripts/docker-publish.yml
 git add .github/workflows/docker-publish.yml
 git commit -m "ci: add Docker publish workflow"
 git push
 ```
-
-**No secrets required** — the workflow uses the built-in `GITHUB_TOKEN`.
 
 **Publish a release:**
 ```bash
@@ -97,7 +89,8 @@ git tag v1.0.0 && git push origin v1.0.0
 
 **Run locally:**
 ```bash
-bash scripts/run-connector.sh ghcr.io/{org}/{repo}:1.0.0 [port]
+# From juvantio/juvant-dev-tools:
+bash hardys/scripts/run-connector.sh ghcr.io/{org}/{repo}:1.0.0 [port]
 ```
 
 ## Package versions
@@ -111,4 +104,5 @@ See `docs/governance.md` for the full changelog.
 ## Related repositories
 
 - `juvantio/hardys-connector-lecture-example` — Reference implementation (lecture class)
+- `juvantio/juvant-dev-tools` — Dev tools, scripts, prompts
 - `juvantio/hardys-pm` — Project management
