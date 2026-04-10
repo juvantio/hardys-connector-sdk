@@ -49,4 +49,4 @@ Normative gRPC proto definitions for the Hardys Connector Framework (HCF). This 
 - connector_id: `{class}.{platform}` — e.g. `lecture.teams`
 - Proto packages: `hardys.connector.{class}.{version}`
 - Repo names: `juvantio/hardys-connector-{class}-{platform}` — e.g. `juvantio/hardys-connector-lecture-teams`
-- SDK example repo: `juvantio/hardys-connector-sdk-lecture-example`
+- SDK example repo: `juvantio/hardys-connector-lecture-example`
