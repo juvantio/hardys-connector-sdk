@@ -1,0 +1,8 @@
+{
+  "recommendations": [
+    "drblury.protobuf-vsc"
+  ],
+  "unwantedRecommendations": [
+    "zxh404.vscode-proto3"
+  ]
+}
