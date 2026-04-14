@@ -6,7 +6,7 @@ Context for Claude Code working in this repository.
 
 Normative gRPC proto definitions for the Hardys Connector Framework (HCF). This is the single source of truth — all connectors copy these protos.
 
-**Reference documents:** HCF v1.2 + LMS Architecture v0.6 (Apr 2026, in project knowledge).
+**Reference documents:** HCF v1.4 + LMS Architecture v0.8 (Apr 2026, in project knowledge).
 
 ## Proto files
 
@@ -51,6 +51,22 @@ Normative gRPC proto definitions for the Hardys Connector Framework (HCF). This 
 17. **GetMetrics returns empty on unsupported platforms — do not error.** If a connector does not have access to metrics data, it returns an empty `MetricsSnapshot` (session_id populated, values empty). It does NOT return an error or UNIMPLEMENTED status.
 
 18. **GetAttendance.presence_reliable must be set correctly.** `true` means the connector has real-time presence data (e.g. Class `getAttendance`). `false` means the connector can only report the invited roster — `is_present` values are unreliable (e.g. Teams in-session). Core uses this flag to decide how to interpret `is_present`.
+
+## LectureEvent design decisions (Apr 2026)
+
+These decisions were made based on real WSS tracing of Blackboard Collaborate sessions and apply to all lecture connectors.
+
+19. **Participant events carry `participant_id` + `name` only.** The Collaborate WSS (and most platform WebSocket protocols) exposes only `participant_id` and `display_name` per event — no role, no email. Adding `name` to `ParticipantLeftEvent`, `ParticipantMutedEvent`, `ParticipantUnmutedEvent`, `ScreenShareStartedEvent`, `ScreenShareStoppedEvent` makes each event self-contained for Core's `name → SUM` matching without requiring Core to maintain a session-scoped roster in memory. `role` is intentionally NOT included in post-join events — Core derives it from `ParticipantJoinedEvent` which already carries it.
+
+20. **Breakout rooms are M1 pause/resume signals — Hardys stays in plenary.** `BreakoutRoomStartedEvent` and `BreakoutRoomClosedEvent` signal Core to pause and resume M1 activator prompts. Hardys does NOT follow participants into breakout rooms — breakout rooms are protected pauses from M1 by design. Participant list per room is intentionally absent. `breakout_id` must be generated as a synthetic UUID by the connector if not natively exposed by the platform WSS — it must match across the Started/Closed pair (connector holds it in memory for the duration of the breakout).
+
+21. **Poll events are M1 pause/resume signals — `question` and `options` retained for logging.** `PollStartedEvent` and `PollClosedEvent` signal Core to pause and resume M1. `question` and `options` are retained for Faculty dashboard logging. `poll_id` is intentionally absent — not reliably available from all platform WSS implementations and not needed for Hardys operation. `timestamp` in both events allows Core to calculate pause duration.
+
+22. **ScreenShare events are logging only — no M1 impact.** `ScreenShareStartedEvent` and `ScreenShareStoppedEvent` do not affect M1 timing. Hardys does not process video (`video_enabled=false` by default). These events are retained for Faculty dashboard session timeline.
+
+23. **`HARDYS_DISPLAY_NAME = "Hardys"` is a constant — never configurable.** The name shown in the platform participant list is product identity, not a configuration option. It must not appear in `connector-manifest.json`, `ConnectRequest`, or `LectureConfig`. It is hardcoded as a module-level constant in the module that constructs the guest join request. Do not accept `display_name` or `guest_display_name` as a manifest field, runtime field, or constructor parameter.
+
+24. **Error messages are always in English and structured.** Connectors return errors via two mechanisms only: (a) synchronous response fields (`ConnectResponse.error`, `ChatOutResponse.error`, `ControlResponse.error`) for unary method failures; (b) `LectureErrorEvent` on `StreamEvents` for async errors, using typed `LectureErrorType` enum as the machine-readable code and `LectureError.message` as a human-readable English description for logs. Error messages are never shown to end users — Core localizes. Connectors never call `sys.exit()` on error.
 
 ## Naming conventions
 
