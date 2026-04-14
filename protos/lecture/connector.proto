@@ -357,6 +357,32 @@ message MetricsSnapshot {
 //   2. Lifecycle control events (20-22): connector state signals to Core
 //
 // No callback servers — one stream, one paradigm.
+//
+// DESIGN DECISIONS (validated Apr 2026):
+//
+// Participant events (ParticipantLeft, Muted, Unmuted, ScreenShare*):
+//   Carry participant_id + name. The WSS of Collaborate exposes only
+//   participant_id and display_name per event — no role, no email.
+//   name makes each event self-contained for Core's name→SUM matching
+//   without requiring Core to maintain a session-scoped roster in memory.
+//   role is NOT included — Core derives it from ParticipantJoinedEvent.
+//
+// ScreenShare events:
+//   Logging only — Hardys does not process video (video_enabled=false).
+//   Retained for Faculty dashboard session timeline.
+//
+// Poll events:
+//   M1 pause/resume signals. question and options retained for Faculty
+//   dashboard logging. poll_id removed — not needed for Hardys operation
+//   and not reliably available from all platform WSS implementations.
+//
+// Breakout room events:
+//   M1 pause/resume signals. Hardys stays in plenary during breakout rooms
+//   (breakout rooms = protected pauses from M1 — by design).
+//   breakout_id generated as synthetic UUID by connector if not natively
+//   exposed by the platform WSS. Must match across Started/Closed pair.
+//   Participant list per room NOT included — Hardys does not follow
+//   participants into breakout rooms.
 
 // Platform events
 message LectureStartedEvent          { string lecture_id = 1; string lecture_name = 2; string platform = 3; }
@@ -375,17 +401,37 @@ message SpeakerChangedEvent {
   bool        is_instructor = 4;
 }
 
+// Participant events — carry participant_id + name.
+// name = display_name from the platform WSS at event time.
+// role NOT included — Core derives it from ParticipantJoinedEvent.
+// If display_name is not available from the platform for a specific event,
+// populate name as empty string — do not error.
 message ParticipantJoinedEvent     { string participant_id = 1; string name = 2; SpeakerRole role = 3; }
-message ParticipantLeftEvent       { string participant_id = 1; }
+message ParticipantLeftEvent       { string participant_id = 1; string name = 2; }
 message ParticipantRaisedHandEvent { string participant_id = 1; string name = 2; }
-message ParticipantMutedEvent      { string participant_id = 1; }
-message ParticipantUnmutedEvent    { string participant_id = 1; }
-message ScreenShareStartedEvent    { string participant_id = 1; }
-message ScreenShareStoppedEvent    { string participant_id = 1; }
-message PollStartedEvent           { string question = 1; repeated string options = 2; }
-message PollClosedEvent            { string poll_id = 1; }
-message BreakoutRoomStartedEvent   { uint32 room_count = 1; }
-message BreakoutRoomClosedEvent    { uint64 timestamp = 1; }
+message ParticipantMutedEvent      { string participant_id = 1; string name = 2; }
+message ParticipantUnmutedEvent    { string participant_id = 1; string name = 2; }
+
+// ScreenShare events — logging only. Hardys does not process video.
+// name = display_name of the participant sharing their screen.
+message ScreenShareStartedEvent    { string participant_id = 1; string name = 2; }
+message ScreenShareStoppedEvent    { string participant_id = 1; string name = 2; }
+
+// Poll events — M1 pause/resume signals.
+// question and options retained for Faculty dashboard logging.
+// timestamp used to calculate pause duration.
+// poll_id intentionally absent — not reliably available from all platforms.
+message PollStartedEvent           { uint64 timestamp = 1; string question = 2; repeated string options = 3; }
+message PollClosedEvent            { uint64 timestamp = 1; }
+
+// Breakout room events — M1 pause/resume signals.
+// breakout_id: use platform-native ID if available; otherwise generate a
+// synthetic UUID at BreakoutRoomStartedEvent and reuse it in BreakoutRoomClosedEvent.
+// The connector must hold breakout_id in memory for the duration of the breakout.
+// Participant list per room intentionally absent — Hardys stays in plenary.
+message BreakoutRoomStartedEvent   { string breakout_id = 1; uint32 room_count = 2; uint64 timestamp = 3; }
+message BreakoutRoomClosedEvent    { string breakout_id = 1; uint64 timestamp = 2; }
+
 message ChatMessageReceivedEvent   { ChatMessage message = 1; }
 
 // Lifecycle control events — connector signals to Core via StreamEvents
@@ -520,6 +566,7 @@ message LectureError {
   uint64               timestamp      = 7;  // epoch ms
   LectureErrorContext  context        = 8;
   string               stack_trace    = 9;  // optional — debug builds only
+  string               message        = 10; // human-readable English description — for logs only, never shown to end users
 }
 
 // -----------------------------------------------------------------------------
