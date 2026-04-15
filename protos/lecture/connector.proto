@@ -367,6 +367,10 @@ message MetricsSnapshot {
 //   without requiring Core to maintain a session-scoped roster in memory.
 //   role is NOT included — Core derives it from ParticipantJoinedEvent.
 //
+// ParticipantRaisedHandEvent:
+//   is_raised=true → hand raised; is_raised=false → hand lowered.
+//   Single event type covers both transitions — no separate LoweredHandEvent.
+//
 // ScreenShare events:
 //   Logging only — Hardys does not process video (video_enabled=false).
 //   Retained for Faculty dashboard session timeline.
@@ -408,9 +412,13 @@ message SpeakerChangedEvent {
 // populate name as empty string — do not error.
 message ParticipantJoinedEvent     { string participant_id = 1; string name = 2; SpeakerRole role = 3; }
 message ParticipantLeftEvent       { string participant_id = 1; string name = 2; }
-message ParticipantRaisedHandEvent { string participant_id = 1; string name = 2; }
 message ParticipantMutedEvent      { string participant_id = 1; string name = 2; }
 message ParticipantUnmutedEvent    { string participant_id = 1; string name = 2; }
+
+// Hand raise/lower — single event type covers both transitions.
+// is_raised=true → hand raised; is_raised=false → hand lowered.
+// Connectors that cannot detect hand lower should always emit is_raised=true.
+message ParticipantRaisedHandEvent { string participant_id = 1; string name = 2; bool is_raised = 3; }
 
 // ScreenShare events — logging only. Hardys does not process video.
 // name = display_name of the participant sharing their screen.
