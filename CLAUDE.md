@@ -13,6 +13,26 @@ Normative gRPC proto definitions for the Hardys Connector Framework (HCF). This 
 | File | Package | Purpose |
 |---|---|---|
 | `protos/lecture/connector.proto` | `hardys.connector.lecture.v2` | Lecture class — ConnectorService (mandatory) + ConnectorLectureManagementService (optional) |
+| `protos/lms/connector.proto` | `hardys.connector.lms.v1` | LMS class — not yet defined (see hardys-pm #94) |
+| `protos/content/connector.proto` | `hardys.connector.content.v1` | Content class — not yet defined |
+| `protos/identity/connector.proto` | `hardys.connector.identity.v1` | Identity class — not yet defined |
+| `protos/assessment/connector.proto` | `hardys.connector.assessment.v1` | Assessment class — not yet defined |
+
+## Connector class taxonomy
+
+| Class | What it integrates | Lifecycle | Protocol | Status |
+|---|---|---|---|---|
+| `lecture` | Live sessions (audio, chat, events) | Long-running ACA Container App | gRPC streaming | Specified — v2 |
+| `lms` | Full institutional context via LTI 1.3 + LTI Advantage (identity, roster, materials, grades) | Hybrid: HTTP launch handler + REST calls | HTTP (LTI) + gRPC unary | Not yet defined — see #94 |
+| `content` | Content repositories (Panopto, Drive) | Request/response | gRPC unary | Not yet defined |
+| `identity` | Pure identity providers (LinkedIn, SAML) | Request/response | gRPC unary | Not yet defined |
+| `assessment` | Assessment platforms | Request/response | gRPC unary | Not yet defined |
+
+The class taxonomy is open — new classes are added as Hardys integrates with new categories of external systems.
+
+### Class `lms` — key design notes (see hardys-pm #94)
+
+The `lms` class covers LTI 1.3 + LTI Advantage integrations. A single connector `lms.lti13` covers all LTI 1.3 compliant LMS platforms (Blackboard, Canvas, Moodle, Brightspace). It is NOT a pure identity provider — it exposes the full institutional context: user identity, course roster (NRPS), materials (Deep Linking), grades writeBack (AGS), and calendar. This resolves OQ-6 definitively for all LTI 1.3 compliant institutions.
 
 ## Key architecture decisions (do not change without explicit instruction)
 
@@ -70,7 +90,7 @@ These decisions were made based on real WSS tracing of Blackboard Collaborate se
 
 ## Naming conventions
 
-- connector_id: `{class}.{platform}` — e.g. `lecture.teams`
+- connector_id: `{class}.{platform}` — e.g. `lecture.teams`, `lms.lti13`
 - Proto packages: `hardys.connector.{class}.{version}`
-- Repo names: `juvantio/hardys-connector-{class}-{platform}` — e.g. `juvantio/hardys-connector-lecture-teams`
+- Repo names: `juvantio/hardys-connector-{class}-{platform}` — e.g. `juvantio/hardys-connector-lecture-teams`, `juvantio/hardys-connector-lms-lti13`
 - SDK example repo: `juvantio/hardys-connector-lecture-example`
